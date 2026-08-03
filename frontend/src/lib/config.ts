@@ -2,6 +2,10 @@ export const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL || ""
 ).replace(/\/+$/, "");
 
+const API_INTERNAL_URL = (
+  process.env.API_INTERNAL_URL || ""
+).replace(/\/+$/, "");
+
 export const SITE_BASE_URL = (
   process.env.NEXT_PUBLIC_SITE_BASE_URL || ""
 ).replace(/\/+$/, "");
@@ -14,10 +18,11 @@ export function apiUrl(path: string): string {
     return normalizedPath;
   }
 
-  if (API_BASE_URL.endsWith("/api") && normalizedPath.startsWith("/api/")) {
-    return `${API_BASE_URL.slice(0, -4)}${normalizedPath}`;
+  const serverBaseUrl = API_INTERNAL_URL || API_BASE_URL;
+  if (serverBaseUrl.endsWith("/api") && normalizedPath.startsWith("/api/")) {
+    return `${serverBaseUrl.slice(0, -4)}${normalizedPath}`;
   }
-  return API_BASE_URL ? `${API_BASE_URL}${normalizedPath}` : normalizedPath;
+  return serverBaseUrl ? `${serverBaseUrl}${normalizedPath}` : normalizedPath;
 }
 
 
