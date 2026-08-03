@@ -22,6 +22,16 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async rewrites() {
+    const backendUrl = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
+    const targetBase = backendUrl.endsWith("/api") ? backendUrl.slice(0, -4) : backendUrl;
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${targetBase}/api/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

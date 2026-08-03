@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import RichTextEditor from "../../components/RichTextEditor";
-import { apiFetch } from "../../../lib/auth";
+import { apiErrorMessage, apiFetch } from "../../../lib/auth";
 import { apiUrl, siteUrl } from "../../../lib/config";
 
 interface Article {
@@ -149,12 +149,11 @@ export default function JournalistDashboard() {
         fetchMyArticles();
         alert(isEdit ? "Draft updated successfully!" : "New draft saved to the archive!");
       } else {
-        const errData = await res.json();
-        alert(errData.detail || "Failed to save draft.");
+        alert(await apiErrorMessage(res, "Failed to save draft."));
       }
     } catch (err) {
       console.error(err);
-      alert("Network error while saving draft.");
+      alert("Could not reach the newsroom server. Check your connection and try again.");
     }
   };
 

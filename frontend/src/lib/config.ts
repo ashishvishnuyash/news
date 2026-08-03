@@ -1,12 +1,27 @@
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+export const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_BASE_URL || ""
+).replace(/\/+$/, "");
 
-export const SITE_BASE_URL =
-  process.env.NEXT_PUBLIC_SITE_BASE_URL || "http://localhost:3000";
+export const SITE_BASE_URL = (
+  process.env.NEXT_PUBLIC_SITE_BASE_URL || ""
+).replace(/\/+$/, "");
 
 export function apiUrl(path: string): string {
-  return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+  // In browser client components, always use relative path so Next.js proxy rewrites handle backend requests without CORS errors
+  if (typeof window !== "undefined") {
+    return normalizedPath;
+  }
+
+  if (API_BASE_URL.endsWith("/api") && normalizedPath.startsWith("/api/")) {
+    return `${API_BASE_URL.slice(0, -4)}${normalizedPath}`;
+  }
+  return API_BASE_URL ? `${API_BASE_URL}${normalizedPath}` : normalizedPath;
 }
+
+
+
 
 export function siteUrl(path: string = "/"): string {
   return `${SITE_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;

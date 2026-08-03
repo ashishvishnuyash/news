@@ -35,3 +35,5 @@ sudo bash deploy.sh --domain news.example.com --email admin@example.com
 ```
 
 The script installs Nginx, Python, Node.js 20, and Certbot; builds both applications; configures HTTPS; and starts the frontend and backend as systemd services. For a private VM without a domain, use `--http-only`. Back up `backend/news.db`, `backend/uploads`, and `backend/.env`.
+
+After deployment, verify the backend at `https://your-domain/api/health` and browse its API documentation at `https://your-domain/api/docs`. The bare `/api` path intentionally returns `404` because it is not an API endpoint.

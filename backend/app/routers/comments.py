@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from app.database import get_db
-from app.models import Comment, ReviewComment, Article, User
+from app.models import Comment, ReviewComment, Article, User, Notification
 from app.schemas import CommentCreate, CommentResponse, CommentUpdate, ReviewCommentCreate, ReviewCommentResponse
 from app.auth import get_current_user, require_role
 from app.site_config import feature_enabled
@@ -181,6 +181,13 @@ async def create_review(
         author_id=current_user.id
     )
     db.add(db_review)
+    if current_user.role in ["EDITOR", "ADMIN", "SUPER_ADMIN"] and article.author_id != current_user.id:
+        db.add(Notification(
+            user_id=article.author_id,
+            message=f"An editor left a review note on '{article.title}'.",
+            type="INFO",
+            link="/panels/journalist",
+        ))
     await db.commit()
     
     # Reload

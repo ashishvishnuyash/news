@@ -211,9 +211,30 @@ systemctl is-active --quiet "${APP_NAME}-api"
 systemctl is-active --quiet "${APP_NAME}-web"
 systemctl is-active --quiet nginx
 
+echo "Checking local reverse-proxy health..."
+curl --fail --silent --show-error --resolve "$DOMAIN:80:127.0.0.1" "http://$DOMAIN/api/health" >/dev/null
+curl --fail --silent --show-error --resolve "$DOMAIN:80:127.0.0.1" "http://$DOMAIN/" >/dev/null
+
 if [[ "$HTTP_ONLY" == false ]]; then
   echo "Requesting a TLS certificate for $DOMAIN..."
-  certbot --nginx --non-interactive --agree-tos --redirect --email "$EMAIL" -d "$DOMAIN"
+  if ! certbot --nginx --non-interactive --agree-tos --redirect --email "$EMAIL" -d "$DOMAIN"; then
+    cat >&2 <<EOF
+
+TLS certificate request failed. The local Nginx and application health checks passed,
+so verify the public DNS and any proxy/CDN configuration before trying again:
+  1. Point the domain's A record to this VM's public IPv4 address.
+  2. Remove its AAAA record unless this VM has the matching public IPv6 address.
+  3. If Cloudflare is enabled, temporarily set the DNS record to "DNS only" (grey cloud).
+  4. Ensure ports 80 and 443 are open in the VM/cloud firewall.
+
+Then retry only the certificate command:
+  sudo certbot --nginx --redirect --email "$EMAIL" -d "$DOMAIN"
+
+After the certificate succeeds, Cloudflare may be re-enabled. Set Cloudflare SSL/TLS mode
+to "Full (strict)" rather than "Flexible".
+EOF
+    exit 1
+  fi
 fi
 
 echo

@@ -111,9 +111,12 @@ async def list_editor_queue(
     query = select(Article).options(
         selectinload(Article.author), selectinload(Article.editor)
     )
-    if status_filter:
-        query = query.filter(Article.status == status_filter.upper())
-    else:
+    normalized_status = status_filter.upper() if status_filter else None
+    if normalized_status and normalized_status != "ALL":
+        if normalized_status not in {"DRAFT", "SUBMITTED", "PUBLISHED", "REJECTED"}:
+            raise HTTPException(status_code=400, detail="Invalid article status filter")
+        query = query.filter(Article.status == normalized_status)
+    elif normalized_status is None:
         query = query.filter(Article.status == "SUBMITTED")
     query = query.order_by(Article.updated_at.desc())
     result = await db.execute(query)
@@ -237,7 +240,7 @@ async def update_article(
         raise HTTPException(status_code=404, detail="Article not found")
 
     is_author = article.author_id == current_user.id
-    is_editor = current_user.role in ["EDITOR", "ADMIN"]
+    is_editor = current_user.role in ["EDITOR", "ADMIN", "SUPER_ADMIN"]
 
     if not is_author and not is_editor:
         raise HTTPException(status_code=403, detail="Not authorized to edit this article")
@@ -275,14 +278,10 @@ async def update_article(
             if new_status not in ["DRAFT", "SUBMITTED"]:
                 raise HTTPException(status_code=400, detail="Invalid status transition for journalist")
         elif is_editor:
-            if new_status not in ["PUBLISHED", "REJECTED", "DRAFT", "SUBMITTED"]:
-                raise HTTPException(status_code=400, detail="Invalid status transition for editor")
-            if new_status in ["PUBLISHED", "REJECTED"] and article.status != "SUBMITTED":
-                raise HTTPException(status_code=400, detail="Only submitted articles can be published or returned")
-            if new_status == "PUBLISHED":
+            previous_status = article.status
+            if new_status == "PUBLISHED" and previous_status != "PUBLISHED":
                 article.published_at = datetime.now(timezone.utc)
                 article.editor_id = current_user.id
-                # Notify author
                 notif = Notification(
                     user_id=article.author_id,
                     message=f"Your article '{article.title}' has been published!",
@@ -290,7 +289,7 @@ async def update_article(
                     link=f"/articles/{article.slug}",
                 )
                 db.add(notif)
-            elif new_status == "REJECTED":
+            elif new_status == "REJECTED" and previous_status != "REJECTED":
                 article.editor_id = current_user.id
                 notif = Notification(
                     user_id=article.author_id,
@@ -299,7 +298,7 @@ async def update_article(
                     link=f"/articles/{article.slug}",
                 )
                 db.add(notif)
-            elif article.status == "PUBLISHED" and new_status != "PUBLISHED":
+            elif previous_status == "PUBLISHED" and new_status != "PUBLISHED":
                 article.published_at = None
 
     # Regenerate slug if title changed and not yet published

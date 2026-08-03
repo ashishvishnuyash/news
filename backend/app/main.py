@@ -33,6 +33,9 @@ app = FastAPI(
     description="Production-ready backend API for The Republic Bulletin vintage news platform.",
     version="2.5.0",
     lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
 
 # CORS — allow localhost main + all subdomains on port 3000/3001

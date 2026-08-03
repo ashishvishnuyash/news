@@ -9,6 +9,10 @@ _TEMP_DIR = tempfile.TemporaryDirectory(prefix="republic-bulletin-tests-")
 _DB_PATH = Path(_TEMP_DIR.name) / "test.db"
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_DB_PATH.as_posix()}"
 os.environ["SECRET_KEY"] = "test-only-secret-key-that-is-long-and-private"
+# Keep tests isolated even when a developer's .env supplies PostgreSQL parts.
+# app.config assembles a PostgreSQL URL whenever these values are populated.
+for _setting in ("PGHOST", "PGUSER", "PGPORT", "PGDATABASE", "PGPASSWORD"):
+    os.environ[_setting] = ""
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
@@ -146,6 +150,75 @@ class ApiWorkflowTests(unittest.IsolatedAsyncioTestCase):
             "confirm_password": "password123",
         })
         self.assertEqual(registration.status_code, 403)
+
+    async def test_super_admin_can_create_a_draft(self):
+        await self.login("publisher_test")
+
+        created = await self.client.post("/api/articles", json={
+            "title": "A Publisher Draft From the Test Desk",
+            "content": "<p>A substantial draft body created by the publisher.</p>",
+            "summary": "A super-admin draft creation verification.",
+            "category": "Technology",
+        })
+
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(created.json()["status"], "DRAFT")
+        self.assertEqual(created.json()["author"]["username"], "publisher_test")
+
+        managed = await self.client.put(
+            f"/api/articles/{created.json()['id']}",
+            json={"status": "PUBLISHED", "is_pinned": True},
+        )
+        self.assertEqual(managed.status_code, 200, managed.text)
+        self.assertEqual(managed.json()["status"], "PUBLISHED")
+        self.assertTrue(managed.json()["is_pinned"])
+
+    async def test_editor_can_manage_the_complete_article_lifecycle(self):
+        await self.login("journalist_test")
+        created = await self.client.post("/api/articles", json={
+            "title": "A Draft Ready For Complete Editorial Control",
+            "content": "<p>This substantial draft is ready for an editor to revise and publish.</p>",
+            "summary": "A verification of the complete editorial lifecycle.",
+            "category": "Politics",
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        article_id = created.json()["id"]
+
+        await self.login("editor_test")
+        queue = await self.client.get("/api/articles/editor/queue?status_filter=ALL")
+        self.assertEqual(queue.status_code, 200, queue.text)
+        self.assertIn(article_id, [article["id"] for article in queue.json()])
+
+        published = await self.client.put(f"/api/articles/{article_id}", json={
+            "title": "A Revised Draft Published Directly By The Editor",
+            "status": "PUBLISHED",
+            "is_pinned": True,
+            "is_breaking": True,
+        })
+        self.assertEqual(published.status_code, 200, published.text)
+        self.assertEqual(published.json()["status"], "PUBLISHED")
+        self.assertEqual(published.json()["editor"]["username"], "editor_test")
+        self.assertIsNotNone(published.json()["published_at"])
+        self.assertTrue(published.json()["is_pinned"])
+        self.assertTrue(published.json()["is_breaking"])
+
+        note = await self.client.post(f"/api/articles/{article_id}/reviews", json={
+            "content": "Headline revised and publication placement approved.",
+        })
+        self.assertEqual(note.status_code, 201, note.text)
+
+        draft = await self.client.put(f"/api/articles/{article_id}", json={"status": "DRAFT"})
+        self.assertEqual(draft.status_code, 200, draft.text)
+        self.assertIsNone(draft.json()["published_at"])
+
+        submitted = await self.client.put(f"/api/articles/{article_id}", json={"status": "SUBMITTED"})
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        rejected = await self.client.put(f"/api/articles/{article_id}", json={"status": "REJECTED"})
+        self.assertEqual(rejected.status_code, 200, rejected.text)
+        self.assertEqual(rejected.json()["status"], "REJECTED")
+
+        invalid_filter = await self.client.get("/api/articles/editor/queue?status_filter=UNKNOWN")
+        self.assertEqual(invalid_filter.status_code, 400, invalid_filter.text)
 
     async def test_journalist_can_upload_a_valid_cover_image(self):
         await self.login("journalist_test")
