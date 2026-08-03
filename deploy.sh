@@ -106,12 +106,12 @@ if [[ -z "$SECRET_KEY" || "$SECRET_KEY" == supersecret* ]]; then
 fi
 COOKIE_SECURE=false
 [[ "$HTTP_ONLY" == false ]] && COOKIE_SECURE=true
-set_env "$BACKEND_ENV" "ENVIRONMENT" "production"
+
 set_env "$BACKEND_ENV" "SECRET_KEY" "$SECRET_KEY"
 set_env "$BACKEND_ENV" "COOKIE_SECURE" "$COOKIE_SECURE"
-set_env "$BACKEND_ENV" "CORS_ORIGINS" "https://$DOMAIN,http://$DOMAIN"
+
 set_env "$BACKEND_ENV" "CORS_ORIGIN_REGEX" "^$"
-set_env "$BACKEND_ENV" "ALLOWED_HOSTS" "$DOMAIN,localhost,127.0.0.1"
+set_env "$BACKEND_ENV" "ALLOWED_HOSTS" "*"
 chmod 600 "$BACKEND_ENV"
 install -d -m 755 "$BACKEND_DIR/uploads"
 
