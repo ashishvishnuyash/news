@@ -31,5 +31,7 @@ export async function apiErrorMessage(
   } catch {
     // The server did not return JSON.
   }
-  return fallback;
+  return response.status >= 500
+    ? `${fallback} The server returned HTTP ${response.status}; check the API service logs.`
+    : fallback;
 }

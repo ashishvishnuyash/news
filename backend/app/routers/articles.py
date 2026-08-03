@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from typing import Optional, List
 import re
 import unicodedata
@@ -7,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from app.database import get_db
-from app.models import Article, User, Notification
+from app.models import Article, User, Notification, utc_now
 from app.schemas import ArticleCreate, ArticleUpdate, ArticleResponse
 from app.auth import get_current_user, require_role
 from app.content import sanitize_article_html
@@ -280,7 +279,9 @@ async def update_article(
         elif is_editor:
             previous_status = article.status
             if new_status == "PUBLISHED" and previous_status != "PUBLISHED":
-                article.published_at = datetime.now(timezone.utc)
+                # SQLAlchemy's DateTime columns are timezone-naive in this schema.
+                # asyncpg rejects an aware datetime for PostgreSQL TIMESTAMP columns.
+                article.published_at = utc_now()
                 article.editor_id = current_user.id
                 notif = Notification(
                     user_id=article.author_id,

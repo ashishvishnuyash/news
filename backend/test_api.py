@@ -199,6 +199,8 @@ class ApiWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(published.json()["status"], "PUBLISHED")
         self.assertEqual(published.json()["editor"]["username"], "editor_test")
         self.assertIsNotNone(published.json()["published_at"])
+        self.assertNotIn("+00:00", published.json()["published_at"])
+        self.assertFalse(published.json()["published_at"].endswith("Z"))
         self.assertTrue(published.json()["is_pinned"])
         self.assertTrue(published.json()["is_breaking"])
 
