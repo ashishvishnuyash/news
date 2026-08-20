@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,12 +7,41 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.config import settings as config_settings
-from app.database import engine, Base
-from app.routers import auth, articles, comments, admin, media, users, settings as settings_router
+from sqlalchemy import select
+from app.database import engine, Base, SessionLocal, ensure_compatible_schema
+from app.models import Article, Notification, utc_now
+from app.routers import auth, articles, comments, admin, media, publication, users, settings as settings_router
 
 
 MEDIA_DIRECTORY = Path(__file__).resolve().parents[1] / "uploads"
 MEDIA_DIRECTORY.mkdir(parents=True, exist_ok=True)
+
+
+async def publish_scheduled_articles() -> None:
+    """Promote due scheduled stories without requiring an external queue service."""
+    while True:
+        try:
+            async with SessionLocal() as session:
+                result = await session.execute(select(Article).filter(
+                    Article.status == "SCHEDULED",
+                    Article.scheduled_at.is_not(None),
+                    Article.scheduled_at <= utc_now(),
+                ))
+                due_articles = result.scalars().all()
+                for article in due_articles:
+                    article.status = "PUBLISHED"
+                    article.published_at = utc_now()
+                    session.add(Notification(
+                        user_id=article.author_id,
+                        message=f"Your scheduled article '{article.title}' has been published.",
+                        type="SUCCESS",
+                        link=f"/articles/{article.slug}",
+                    ))
+                if due_articles:
+                    await session.commit()
+        except Exception as error:
+            print(f"⚠️ Scheduled publication check failed ({error}).")
+        await asyncio.sleep(60)
 
 
 @asynccontextmanager
@@ -19,12 +49,22 @@ async def lifespan(app: FastAPI):
     if config_settings.ENVIRONMENT.lower() == "production" and config_settings.SECRET_KEY.startswith("supersecret"):
         raise RuntimeError("SECRET_KEY must be set to a strong private value in production")
     # Automatically create / migrate tables on startup
+    database_ready = False
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await ensure_compatible_schema(conn)
+        database_ready = True
     except Exception as e:
         print(f"⚠️ Warning: Database connection failed during startup ({e}). Ensure DB host is reachable.")
-    yield
+    schedule_task = asyncio.create_task(publish_scheduled_articles()) if database_ready else None
+    try:
+        yield
+    finally:
+        if schedule_task:
+            schedule_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await schedule_task
 
 
 
@@ -55,6 +95,7 @@ app.mount("/media", StaticFiles(directory=str(MEDIA_DIRECTORY)), name="media")
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(media.router)
+app.include_router(publication.router)
 app.include_router(articles.router)
 app.include_router(comments.router)
 app.include_router(admin.router)

@@ -46,6 +46,11 @@ async def update_my_profile(
     if profile.bio is not None:
         current_user.bio = profile.bio
 
+    for field in ("profile_image_url", "job_title", "coverage_areas", "social_links"):
+        value = getattr(profile, field)
+        if value is not None:
+            setattr(current_user, field, value.strip() or None)
+
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)

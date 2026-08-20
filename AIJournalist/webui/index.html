@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AIJournalist Control Desk</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead__mark" aria-hidden="true">AJ</div>
+    <div>
+      <p class="kicker">The Republic Bulletin · Editorial Tools</p>
+      <h1>AIJournalist Control Desk</h1>
+      <p class="subtitle">Research India-focused reports, review every rewrite, then send selected stories to the newsroom.</p>
+    </div>
+    <div class="system-state" id="systemState" aria-live="polite">Checking configuration…</div>
+  </header>
+
+  <main class="workspace">
+    <section class="panel setup-panel" aria-labelledby="researchHeading">
+      <div class="panel__heading">
+        <div>
+          <p class="step-label">Step 01</p>
+          <h2 id="researchHeading">Research window</h2>
+        </div>
+        <span class="timezone" id="timezoneLabel">Asia/Kolkata</span>
+      </div>
+
+      <div class="notice notice--warning hidden" id="configWarning"></div>
+
+      <form id="researchForm">
+        <fieldset class="segmented" aria-label="Range type">
+          <label><input type="radio" name="rangeType" value="date" checked><span>Complete date</span></label>
+          <label><input type="radio" name="rangeType" value="interval"><span>Time interval</span></label>
+        </fieldset>
+
+        <div id="dateFields" class="field-grid field-grid--single">
+          <label class="field">
+            <span>Indian calendar date</span>
+            <input type="date" id="selectedDate" required>
+          </label>
+        </div>
+
+        <div id="intervalFields" class="field-grid hidden">
+          <label class="field">
+            <span>Start date and time</span>
+            <input type="datetime-local" id="startTime">
+          </label>
+          <label class="field">
+            <span>End date and time</span>
+            <input type="datetime-local" id="endTime">
+          </label>
+        </div>
+
+        <div class="field-grid field-grid--actions">
+          <label class="field">
+            <span>Maximum articles</span>
+            <input type="number" id="maxArticles" min="1" max="25" value="5" required>
+          </label>
+          <button class="button button--primary" type="submit" id="researchButton">
+            <span>Start research</span><span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </form>
+
+      <div class="config-strip" id="configStrip">
+        <span>Sources: <strong id="sourceNames">NDTV + Times of India</strong></span>
+        <span>Model: <strong id="modelName">—</strong></span>
+        <span>Newsroom API: <strong id="siteApi">—</strong></span>
+      </div>
+    </section>
+
+    <section class="panel activity-panel" aria-labelledby="activityHeading">
+      <div class="panel__heading">
+        <div>
+          <p class="step-label">Step 02</p>
+          <h2 id="activityHeading">Live desk activity</h2>
+        </div>
+        <span class="state-badge state-badge--idle" id="jobState">IDLE</span>
+      </div>
+
+      <div class="empty-activity" id="emptyActivity">
+        <div class="radar" aria-hidden="true"><i></i></div>
+        <p>No research job is running.</p>
+        <span>Choose a date above to begin.</span>
+      </div>
+
+      <div id="jobActivity" class="hidden">
+        <div class="activity-summary">
+          <div>
+            <p class="activity-stage" id="jobStage">Waiting…</p>
+            <p class="activity-range" id="jobRange"></p>
+          </div>
+          <button type="button" class="button button--quiet hidden" id="cancelButton">Cancel safely</button>
+        </div>
+        <div class="progress-track" aria-label="Research progress"><div id="progressBar"></div></div>
+        <div class="metric-row">
+          <div><strong id="readyCount">0</strong><span>Ready</span></div>
+          <div><strong id="processedCount">0</strong><span>Processed</span></div>
+          <div><strong id="skippedCount">0</strong><span>Skipped</span></div>
+          <div><strong id="failedCount">0</strong><span>Failed</span></div>
+        </div>
+        <div class="notice notice--error hidden" id="jobError"></div>
+      </div>
+    </section>
+
+    <section class="panel results-panel" aria-labelledby="resultsHeading">
+      <div class="panel__heading results-heading">
+        <div>
+          <p class="step-label">Step 03</p>
+          <h2 id="resultsHeading">Editorial review</h2>
+        </div>
+        <div class="selection-count" id="selectionCount">0 selected</div>
+      </div>
+
+      <div class="empty-results" id="emptyResults">
+        <p>Rewritten articles will appear here for review.</p>
+      </div>
+      <div class="article-list" id="articleList"></div>
+
+      <div class="publish-bar hidden" id="publishBar">
+        <div>
+          <label for="publishStatus">Send selected articles as</label>
+          <select id="publishStatus">
+            <option value="DRAFT">Draft — safest</option>
+            <option value="SUBMITTED">Submitted for editor review</option>
+            <option value="PUBLISHED">Published immediately (admin only)</option>
+          </select>
+          <small>Source-excerpt fallbacks are always saved as drafts.</small>
+        </div>
+        <button class="button button--publish" type="button" id="publishButton">Send to newsroom</button>
+      </div>
+    </section>
+
+    <section class="panel log-panel" aria-labelledby="logHeading">
+      <div class="panel__heading panel__heading--compact">
+        <div>
+          <p class="step-label">Desk record</p>
+          <h2 id="logHeading">Activity log</h2>
+        </div>
+        <button type="button" class="text-button" id="toggleLogs">Show log</button>
+      </div>
+      <ol class="log-list hidden" id="logList"></ol>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

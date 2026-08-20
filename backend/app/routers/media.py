@@ -29,7 +29,7 @@ def image_extension(data: bytes) -> str | None:
 async def upload_image(
     request: Request,
     file: UploadFile = File(...),
-    _current_user= require_role(["JOURNALIST", "ADMIN"]),
+    _current_user= require_role(["JOURNALIST", "EDITOR", "ADMIN"]),
 ):
     """Store a journalist's JPEG, PNG, or WebP cover image and return its public URL."""
     try:

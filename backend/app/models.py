@@ -18,6 +18,11 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="READER", nullable=False)    # READER, JOURNALIST, EDITOR, ADMIN, SUPER_ADMIN
     bio = Column(Text, nullable=True)
+    slug = Column(String, nullable=True, index=True)
+    profile_image_url = Column(String, nullable=True)
+    job_title = Column(String, nullable=True)
+    coverage_areas = Column(Text, nullable=True)
+    social_links = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
@@ -35,6 +40,7 @@ class Article(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
+    subtitle = Column(Text, nullable=True)
     slug = Column(String, unique=True, index=True, nullable=True)
     content = Column(Text, nullable=False)
     summary = Column(Text, nullable=True)
@@ -43,6 +49,13 @@ class Article(Base):
     image_url = Column(String, nullable=True)
     image_caption = Column(String, nullable=True)
     tags = Column(String, nullable=True)  # comma-separated
+    sources = Column(Text, nullable=True)
+    seo_title = Column(String, nullable=True)
+    seo_description = Column(Text, nullable=True)
+    og_image_url = Column(String, nullable=True)
+    article_type = Column(String, default="NEWS", nullable=False)  # NEWS, OPINION, INVESTIGATION, FACT_CHECK, LIVE
+    fact_check_rating = Column(String, nullable=True)
+    scheduled_at = Column(DateTime, nullable=True)
     view_count = Column(Integer, default=0, nullable=False)
     is_pinned = Column(Boolean, default=False, nullable=False)
     is_breaking = Column(Boolean, default=False, nullable=False)
@@ -58,6 +71,8 @@ class Article(Base):
     editor = relationship("User", back_populates="articles_edited", foreign_keys=[editor_id])
     comments = relationship("Comment", back_populates="article", cascade="all, delete-orphan")
     reviews = relationship("ReviewComment", back_populates="article", cascade="all, delete-orphan")
+    corrections = relationship("Correction", back_populates="article", cascade="all, delete-orphan")
+    live_updates = relationship("LiveUpdate", back_populates="article", cascade="all, delete-orphan")
 
 
 class Comment(Base):
@@ -114,3 +129,53 @@ class SiteSetting(Base):
     value = Column(Text, nullable=False)
     description = Column(String, nullable=True)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+
+class Correction(Base):
+    __tablename__ = "corrections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    article_id = Column(Integer, ForeignKey("articles.id"), nullable=False, index=True)
+    summary = Column(String, nullable=False)
+    details = Column(Text, nullable=True)
+    recorded_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+    article = relationship("Article", back_populates="corrections")
+    recorded_by = relationship("User", foreign_keys=[recorded_by_id])
+
+
+class NewsletterSubscriber(Base):
+    __tablename__ = "newsletter_subscribers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    source = Column(String, default="website", nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
+class LiveUpdate(Base):
+    __tablename__ = "live_updates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    article_id = Column(Integer, ForeignKey("articles.id"), nullable=False, index=True)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    article = relationship("Article", back_populates="live_updates")
+    author = relationship("User", foreign_keys=[author_id])
+
+
+class NewsroomMessage(Base):
+    __tablename__ = "newsroom_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    purpose = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    message = Column(Text, nullable=False)
+    status = Column(String, default="NEW", nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)

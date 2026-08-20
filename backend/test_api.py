@@ -222,6 +222,75 @@ class ApiWorkflowTests(unittest.IsolatedAsyncioTestCase):
         invalid_filter = await self.client.get("/api/articles/editor/queue?status_filter=UNKNOWN")
         self.assertEqual(invalid_filter.status_code, 400, invalid_filter.text)
 
+    async def test_publication_discovery_transparency_and_contact_services(self):
+        await self.login("journalist_test")
+        created = await self.client.post("/api/articles", json={
+            "title": "A Live Public Service Dispatch",
+            "subtitle": "Verified developments from the test desk",
+            "content": "<p>A substantial live briefing for public readers.</p>",
+            "summary": "A live newsroom services verification.",
+            "category": "World",
+            "article_type": "LIVE",
+            "sources": "https://example.test/public-record",
+            "seo_title": "Live public service dispatch",
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        article = created.json()
+
+        await self.login("editor_test")
+        published = await self.client.put(f"/api/articles/{article['id']}", json={"status": "PUBLISHED"})
+        self.assertEqual(published.status_code, 200, published.text)
+
+        update = await self.client.post(f"/api/live/{article['id']}/updates", json={
+            "content": "<p>Verified update.</p><script>alert(1)</script>",
+        })
+        self.assertEqual(update.status_code, 201, update.text)
+        self.assertNotIn("script", update.json()["content"].lower())
+
+        correction = await self.client.post("/api/corrections", json={
+            "article_id": article["id"],
+            "summary": "Clarified the timing in the opening paragraph.",
+            "details": "The public correction record preserves what changed.",
+        })
+        self.assertEqual(correction.status_code, 201, correction.text)
+
+        search = await self.client.get("/api/articles/search?q=Public%20Service&category=World")
+        self.assertEqual(search.status_code, 200, search.text)
+        self.assertIn(article["id"], [item["id"] for item in search.json()["items"]])
+
+        index = await self.client.get("/api/articles/index")
+        self.assertEqual(index.status_code, 200, index.text)
+        indexed = next(item for item in index.json() if item["id"] == article["id"])
+        self.assertNotIn("content", indexed)
+
+        author = await self.client.get("/api/authors/journalist_test")
+        self.assertEqual(author.status_code, 200, author.text)
+        self.assertGreaterEqual(author.json()["total_articles"], 1)
+        self.assertNotIn("email", author.json()["author"])
+
+        live = await self.client.get(f"/api/live/{article['slug']}")
+        self.assertEqual(live.status_code, 200, live.text)
+        self.assertEqual(live.json()[0]["article_id"], article["id"])
+
+        corrections = await self.client.get("/api/corrections")
+        self.assertEqual(corrections.status_code, 200, corrections.text)
+        self.assertIn(article["id"], [item["article_id"] for item in corrections.json()])
+
+        newsletter = await self.client.post("/api/newsletter/subscribe", json={"email": "reader-news@example.test", "source": "test"})
+        self.assertEqual(newsletter.status_code, 201, newsletter.text)
+        repeated = await self.client.post("/api/newsletter/subscribe", json={"email": "reader-news@example.test", "source": "test-repeat"})
+        self.assertEqual(repeated.status_code, 201, repeated.text)
+
+        message = await self.client.post("/api/newsroom/messages", json={
+            "purpose": "corrections",
+            "email": "reader@example.test",
+            "message": "Please review the timestamp in this published test dispatch.",
+        })
+        self.assertEqual(message.status_code, 201, message.text)
+        inbox = await self.client.get("/api/newsroom/messages")
+        self.assertEqual(inbox.status_code, 200, inbox.text)
+        self.assertIn(message.json()["id"], [item["id"] for item in inbox.json()])
+
     async def test_journalist_can_upload_a_valid_cover_image(self):
         await self.login("journalist_test")
         # A small valid PNG signature is sufficient for the API's safe format gate.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import RichTextEditor from "../../components/RichTextEditor";
 import { apiErrorMessage, apiFetch } from "../../../lib/auth";
@@ -9,6 +9,7 @@ import { apiUrl, siteUrl } from "../../../lib/config";
 interface Article {
   id: number;
   title: string;
+  subtitle?: string;
   slug: string;
   content: string;
   summary: string;
@@ -16,6 +17,12 @@ interface Article {
   image_url?: string;
   image_caption?: string;
   tags?: string;
+  sources?: string;
+  seo_title?: string;
+  seo_description?: string;
+  og_image_url?: string;
+  article_type?: "NEWS" | "OPINION" | "INVESTIGATION" | "FACT_CHECK" | "LIVE";
+  fact_check_rating?: "TRUE" | "FALSE" | "PARTLY_TRUE" | "MISLEADING" | "UNVERIFIED";
   status: string;
   view_count: number;
   created_at: string;
@@ -41,6 +48,10 @@ const CATEGORIES = ["Technology", "Opinion", "Science", "Sports", "Global", "Pol
 
 const STATUS_BADGE: Record<string, { bg: string; label: string }> = {
   DRAFT: { bg: "gray", label: "DRAFT" },
+  FACT_CHECK: { bg: "#8a5a16", label: "FACT CHECK" },
+  EDITOR_REVIEW: { bg: "#214c7a", label: "EDITOR REVIEW" },
+  APPROVED: { bg: "#35613d", label: "APPROVED" },
+  SCHEDULED: { bg: "#6b3f83", label: "SCHEDULED" },
   SUBMITTED: { bg: "navy", label: "IN REVIEW" },
   PUBLISHED: { bg: "darkgreen", label: "PUBLISHED" },
   REJECTED: { bg: "var(--accent-red)", label: "RETURNED" },
@@ -52,10 +63,13 @@ export default function JournalistDashboard() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [archiveSearch, setArchiveSearch] = useState("");
+  const [archiveStatus, setArchiveStatus] = useState("ALL");
 
   // Form state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [title, setTitle] = useState("");
+  const [subtitle, setSubtitle] = useState("");
   const [content, setContent] = useState("");
   const [summary, setSummary] = useState("");
   const [category, setCategory] = useState("Technology");
@@ -64,6 +78,12 @@ export default function JournalistDashboard() {
   const [imageUploading, setImageUploading] = useState(false);
   const [imageUploadError, setImageUploadError] = useState("");
   const [tags, setTags] = useState("");
+  const [sources, setSources] = useState("");
+  const [seoTitle, setSeoTitle] = useState("");
+  const [seoDescription, setSeoDescription] = useState("");
+  const [ogImageUrl, setOgImageUrl] = useState("");
+  const [articleType, setArticleType] = useState<Article["article_type"]>("NEWS");
+  const [factCheckRating, setFactCheckRating] = useState("");
 
   // Reviews
   const [reviews, setReviews] = useState<ReviewComment[]>([]);
@@ -76,6 +96,16 @@ export default function JournalistDashboard() {
     .trim()
     .split(" ")
     .filter(Boolean).length;
+
+  const visibleArticles = useMemo(() => {
+    const query = archiveSearch.trim().toLowerCase();
+    return articles.filter((article) => {
+      const matchesStatus = archiveStatus === "ALL" || article.status === archiveStatus;
+      const matchesSearch = !query || [article.title, article.summary, article.category, article.tags]
+        .some((value) => value?.toLowerCase().includes(query));
+      return matchesStatus && matchesSearch;
+    });
+  }, [archiveSearch, archiveStatus, articles]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -133,12 +163,19 @@ export default function JournalistDashboard() {
 
       const payload = {
         title,
+        subtitle: subtitle.trim() || null,
         content,
         summary: summary.trim(),
         category,
         image_url: imageUrl.trim() || null,
         image_caption: imageUrl.trim() ? imageCaption.trim() || null : null,
+        og_image_url: ogImageUrl.trim() || null,
         tags: tags || undefined,
+        sources: sources.trim() || null,
+        seo_title: seoTitle.trim() || null,
+        seo_description: seoDescription.trim() || null,
+        article_type: articleType || "NEWS",
+        fact_check_rating: articleType === "FACT_CHECK" ? factCheckRating || null : null,
         status: "DRAFT",
       };
 
@@ -158,16 +195,16 @@ export default function JournalistDashboard() {
   };
 
   const handleSubmitForReview = async (artId: number) => {
-    if (!confirm("Submit this dispatch to the editorial queue? You will not be able to edit it until the editors review it.")) return;
+    if (!confirm("Send this dispatch to fact checking? You will not be able to edit it until the newsroom returns it.")) return;
     try {
       const res = await apiFetch(apiUrl(`/api/articles/${artId}`), {
         method: "PUT",
-        body: JSON.stringify({ status: "SUBMITTED" }),
+        body: JSON.stringify({ status: "FACT_CHECK" }),
       });
       if (res.ok) {
         fetchMyArticles();
         if (editingId === artId) resetForm();
-        alert("Dispatch submitted to the editorial queue!");
+        alert("Dispatch sent to the fact-check queue!");
       } else {
         alert("Failed to submit dispatch.");
       }
@@ -192,12 +229,19 @@ export default function JournalistDashboard() {
   const handleEditSelect = (art: Article) => {
     setEditingId(art.id);
     setTitle(art.title);
+    setSubtitle(art.subtitle || "");
     setContent(art.content);
     setSummary(art.summary || "");
     setCategory(art.category);
     setImageUrl(art.image_url || "");
     setImageCaption(art.image_caption || "");
     setTags(art.tags || "");
+    setSources(art.sources || "");
+    setSeoTitle(art.seo_title || "");
+    setSeoDescription(art.seo_description || "");
+    setOgImageUrl(art.og_image_url || "");
+    setArticleType(art.article_type || "NEWS");
+    setFactCheckRating(art.fact_check_rating || "");
     setShowReviewsId(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -259,6 +303,7 @@ export default function JournalistDashboard() {
   const resetForm = () => {
     setEditingId(null);
     setTitle("");
+    setSubtitle("");
     setContent("");
     setSummary("");
     setCategory("Technology");
@@ -266,6 +311,12 @@ export default function JournalistDashboard() {
     setImageCaption("");
     setImageUploadError("");
     setTags("");
+    setSources("");
+    setSeoTitle("");
+    setSeoDescription("");
+    setOgImageUrl("");
+    setArticleType("NEWS");
+    setFactCheckRating("");
     setShowReviewsId(null);
     setReviews([]);
     setShowPreview(false);
@@ -365,6 +416,11 @@ export default function JournalistDashboard() {
               />
             </div>
 
+            <div>
+              <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.35rem" }} htmlFor="subtitle">Subheadline / deck</label>
+              <input id="subtitle" type="text" className="trb-input" style={{ width: "100%" }} value={subtitle} onChange={e => setSubtitle(e.target.value)} maxLength={300} placeholder="Optional context beneath the headline" />
+            </div>
+
             <div className="journalist-form-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               <div>
                 <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.35rem" }} htmlFor="category">Category</label>
@@ -382,17 +438,14 @@ export default function JournalistDashboard() {
               </div>
 
               <div>
-                <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.35rem" }} htmlFor="tags">Tags (comma-separated)</label>
-                <input
-                  id="tags"
-                  type="text"
-                  className="trb-input"
-                  style={{ width: "100%" }}
-                  value={tags}
-                  onChange={e => setTags(e.target.value)}
-                  placeholder="e.g. politics, economy, analysis"
-                />
+                <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.35rem" }} htmlFor="article-type">Story type</label>
+                <select id="article-type" className="trb-select" style={{ width: "100%" }} value={articleType} onChange={e => setArticleType(e.target.value as NonNullable<Article["article_type"]>)}><option value="NEWS">News</option><option value="OPINION">Opinion</option><option value="INVESTIGATION">Investigation</option><option value="FACT_CHECK">Fact check</option><option value="LIVE">Live coverage</option></select>
               </div>
+            </div>
+
+            <div className="journalist-form-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div><label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.35rem" }} htmlFor="tags">Tags (comma-separated)</label><input id="tags" type="text" className="trb-input" style={{ width: "100%" }} value={tags} onChange={e => setTags(e.target.value)} placeholder="e.g. politics, economy, analysis" /></div>
+              {articleType === "FACT_CHECK" && <div><label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.35rem" }} htmlFor="fact-rating">Fact-check rating</label><select id="fact-rating" className="trb-select" style={{ width: "100%" }} value={factCheckRating} onChange={e => setFactCheckRating(e.target.value)}><option value="">Pending verdict</option><option value="TRUE">True</option><option value="FALSE">False</option><option value="PARTLY_TRUE">Partly true</option><option value="MISLEADING">Misleading</option><option value="UNVERIFIED">Unverified</option></select></div>}
             </div>
 
             <div className="journalist-image-field">
@@ -436,6 +489,8 @@ export default function JournalistDashboard() {
                 style={{ width: "100%" }}
                 placeholder="Describe the photograph and credit its source..."
               />
+              <label className="journalist-url-label" style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.7rem", textTransform: "uppercase", fontWeight: 700 }} htmlFor="og-image-url">Social preview image URL</label>
+              <input id="og-image-url" type="url" className="trb-input" style={{ width: "100%" }} value={ogImageUrl} onChange={e => setOgImageUrl(e.target.value)} placeholder="Optional dedicated image for social sharing" />
             </div>
 
             <div>
@@ -452,6 +507,16 @@ export default function JournalistDashboard() {
                 required
                 placeholder="Write a brief summary for the front page..."
               />
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.35rem" }} htmlFor="sources">Sources / references</label>
+              <textarea id="sources" className="trb-input" style={{ width: "100%", resize: "vertical" }} value={sources} onChange={e => setSources(e.target.value)} rows={4} maxLength={5000} placeholder="Record one source, document, or public reference per line" />
+            </div>
+
+            <div className="journalist-form-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div><label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.35rem" }} htmlFor="seo-title">SEO title</label><input id="seo-title" className="trb-input" style={{ width: "100%" }} value={seoTitle} onChange={e => setSeoTitle(e.target.value)} maxLength={220} placeholder="Optional search title" /></div>
+              <div><label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, marginBottom: "0.35rem" }} htmlFor="seo-description">SEO description</label><textarea id="seo-description" className="trb-input" style={{ width: "100%", resize: "vertical" }} value={seoDescription} onChange={e => setSeoDescription(e.target.value)} rows={2} maxLength={500} placeholder="Optional search description" /></div>
             </div>
           </div>
 
@@ -492,7 +557,7 @@ export default function JournalistDashboard() {
                 onClick={() => handleSubmitForReview(editingId)}
                 style={{ borderColor: "navy", color: "navy" }}
               >
-                SUBMIT FOR EDITORIAL REVIEW
+                SEND TO FACT CHECK
               </button>
             )}
 
@@ -519,6 +584,7 @@ export default function JournalistDashboard() {
             )}
             {imageUrl && imageCaption && <p className="article-image-caption">{imageCaption}</p>}
             <h2 style={{ fontFamily: "var(--font-headline)", fontSize: "2.2rem", textTransform: "uppercase", fontWeight: 900, marginBottom: "0.5rem" }}>{title || "Untitled Dispatch"}</h2>
+            {subtitle && <p style={{ fontFamily: "var(--font-headline)", fontSize: "1.15rem", lineHeight: 1.45 }}>{subtitle}</p>}
             <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", marginBottom: "1.5rem", borderBottom: "1px solid var(--border-color)", paddingBottom: "0.5rem" }}>
               CATEGORY: {category.toUpperCase()} · {wordCount} WORDS
             </p>
@@ -574,15 +640,29 @@ export default function JournalistDashboard() {
           </button>
         </div>
 
+        <div className="crud-filter" style={{ marginBottom: "1.25rem" }}>
+          <label>Status
+            <select value={archiveStatus} onChange={(event) => setArchiveStatus(event.target.value)}>
+               <option value="ALL">ALL</option><option value="DRAFT">DRAFT</option><option value="FACT_CHECK">FACT CHECK</option><option value="EDITOR_REVIEW">EDITOR REVIEW</option><option value="APPROVED">APPROVED</option><option value="SCHEDULED">SCHEDULED</option><option value="SUBMITTED">LEGACY REVIEW</option><option value="PUBLISHED">PUBLISHED</option><option value="REJECTED">RETURNED</option>
+            </select>
+          </label>
+          <label>Search archive
+            <input className="trb-input" value={archiveSearch} onChange={(event) => setArchiveSearch(event.target.value)} placeholder="Headline, category, summary, or tag…" />
+          </label>
+          <span>{visibleArticles.length} shown</span>
+        </div>
+
         {loading ? (
           <p style={{ fontFamily: "var(--font-mono)" }}>Loading dispatches...</p>
         ) : articles.length === 0 ? (
           <p style={{ fontFamily: "var(--font-mono)", fontStyle: "italic", opacity: 0.7 }}>
             No dispatches filed yet. File your first chronicle above.
           </p>
+        ) : visibleArticles.length === 0 ? (
+          <p style={{ fontFamily: "var(--font-mono)", fontStyle: "italic", opacity: 0.7 }}>No dispatches match these filters.</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {articles.map(art => {
+            {visibleArticles.map(art => {
               const badge = STATUS_BADGE[art.status] || { bg: "var(--fg-ink)", label: art.status };
               const canEdit = art.status === "DRAFT" || art.status === "REJECTED";
               return (

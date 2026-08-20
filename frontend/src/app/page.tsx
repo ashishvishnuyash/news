@@ -1,306 +1,138 @@
-"use client";
-
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import Image from "next/image";
-import Header from "./components/Header";
+import Link from "next/link";
+import AdSlot from "./components/AdSlot";
+import ArticleCard from "./components/ArticleCard";
+import JsonLd from "./components/JsonLd";
+import NewsletterSignup from "./components/NewsletterSignup";
 import OnboardingTour from "./components/OnboardingTour";
-import { apiUrl } from "../lib/config";
+import PublicShell from "./components/PublicShell";
+import {
+  articleHref,
+  articlePreview,
+  authorHref,
+  formatNewsDate,
+  getMostRead,
+  getSiteSettings,
+  searchArticles,
+} from "../lib/news";
+import { siteUrl } from "../lib/config";
 
-interface Article {
-  id: number;
-  slug: string;
-  title: string;
-  content: string;
-  summary: string;
-  category: string;
-  image_url?: string;
-  image_caption?: string;
-  tags?: string;
-  view_count?: number;
-  is_pinned?: boolean;
-  is_breaking?: boolean;
-  created_at: string;
-  published_at?: string;
-  author: {
-    username: string;
+const SECTION_ORDER = [
+  "India", "World", "Politics", "Business", "Economy", "Technology",
+  "Science", "Culture", "Sports", "Opinion", "Investigations", "Fact Check",
+];
+
+export default async function Home() {
+  const [latestResult, mostRead, settings] = await Promise.all([
+    searchArticles({ limit: 50, sort: "newest" }),
+    getMostRead(6),
+    getSiteSettings(),
+  ]);
+  const articles = latestResult.items;
+  const featured = articles.find((article) => article.is_pinned) || articles[0];
+  const latest = articles.filter((article) => article.id !== featured?.id).slice(0, 8);
+  const breaking = articles.filter((article) => article.is_breaking).slice(0, 4);
+  const availableSections = SECTION_ORDER.map((label) => ({
+    label,
+    articles: articles.filter((article) => {
+      const normalized = article.category.toLowerCase();
+      if (label === "Business") return normalized === "business" || normalized === "economy";
+      if (label === "Investigations") return article.article_type === "INVESTIGATION" || normalized === "investigations";
+      if (label === "Fact Check") return article.article_type === "FACT_CHECK" || normalized === "fact check";
+      return normalized === label.toLowerCase();
+    }).slice(0, 4),
+  })).filter((section) => section.articles.length > 0);
+
+  const organization = {
+    "@context": "https://schema.org",
+    "@type": "NewsMediaOrganization",
+    name: settings.site_name,
+    url: siteUrl("/"),
+    logo: siteUrl("/icon.png"),
+    publishingPrinciples: siteUrl("/editorial-standards"),
+    correctionsPolicy: siteUrl("/corrections"),
   };
-}
-
-function formatDate(dateStr?: string) {
-  if (!dateStr) return "N/A";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
-
-function stripHtml(content = "") {
-  return content.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function getArticlePreview(article: Article, length = 280) {
-  const source = article.summary || stripHtml(article.content);
-  if (source.length <= length) return source;
-  return `${source.slice(0, length).trim()}...`;
-}
-
-export default function Home() {
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [category, setCategory] = useState("All");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [density, setDensity] = useState("broadsheet");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const fetchArticles = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const params = new URLSearchParams();
-      if (category !== "All") params.append("category", category);
-      if (searchQuery.trim()) params.append("q", searchQuery.trim());
-
-      const res = await fetch(apiUrl(`/api/articles${params.toString() ? `?${params}` : ""}`));
-      if (!res.ok) {
-        throw new Error(`Article request failed with ${res.status}`);
-      }
-      setArticles(await res.json());
-    } catch (err) {
-      console.error("Error fetching articles:", err);
-      setError("Unable to reach The Republic Bulletin pressroom. Ensure backend server on port 8000 is online.");
-      setArticles([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [category, searchQuery]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(fetchArticles, 200);
-    return () => window.clearTimeout(timer);
-  }, [fetchArticles]);
-
-  const featured = useMemo(() => articles.find((a) => a.is_pinned) || articles[0], [articles]);
-  const secondaryArticles = useMemo(() => articles.filter((a) => a.id !== featured?.id), [articles, featured]);
-
-  const gridClass = useMemo(() => {
-    if (density === "single") return "trb-grid-single";
-    if (density === "tabloid") return "trb-grid-tabloid";
-    return "trb-grid-broadsheet";
-  }, [density]);
-
-  const totalReads = useMemo(
-    () => articles.reduce((sum, a) => sum + (a.view_count || 0), 0),
-    [articles]
-  );
 
   return (
-    <div className="trb-container">
-      {/* 1. Header Navigation */}
-      <Header
-        currentCategory={category}
-        onCategoryChange={setCategory}
-        onSearchChange={setSearchQuery}
-        activeDensity={density}
-        onDensityChange={setDensity}
-      />
+    <PublicShell>
+      <JsonLd data={organization} />
+      <AdSlot slot="header" settings={settings} />
 
-      {/* 2. Main Dispatches Section */}
-      <main id="main-content" style={{ marginTop: "1.5rem" }}>
-        {error && (
-          <div style={{ padding: "1rem", marginBottom: "1.5rem", border: "2px solid var(--accent-red)", color: "var(--accent-red)", fontFamily: "var(--font-mono)", fontSize: "0.85rem", fontWeight: 700 }}>
-            ⚠️ {error}
-          </div>
-        )}
+      {breaking.length > 0 && (
+        <section className="breaking-desk" aria-labelledby="breaking-heading">
+          <div><p className="eyebrow">Developing</p><h2 id="breaking-heading">Breaking news</h2></div>
+          <ol>{breaking.map((article) => <li key={article.id}><Link href={articleHref(article)}>{article.title}</Link></li>)}</ol>
+          <Link href="/breaking">All breaking coverage</Link>
+        </section>
+      )}
 
-        {loading ? (
-          <div style={{ textAlign: "center", padding: "6rem 1rem", fontFamily: "var(--font-mono)", fontSize: "0.85rem", letterSpacing: "2px", textTransform: "uppercase", borderTop: "3px double var(--border-color)", borderBottom: "3px double var(--border-color)" }}>
-            📜 RETRIEVING BROADSIDE DISPATCHES FROM THE ARCHIVE...
-          </div>
-        ) : articles.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "5rem 2rem", border: "2px dashed var(--border-color)", margin: "2rem 0" }}>
-            <h2 style={{ fontFamily: "var(--font-headline)", fontSize: "2rem", textTransform: "uppercase", marginBottom: "0.5rem" }}>No Dispatches Found</h2>
-            <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.85rem", opacity: 0.8, marginBottom: "1.5rem" }}>
-              There are no published stories in the public records matching your current category filter or search terms.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setCategory("All");
-                setSearchQuery("");
-              }}
-              className="trb-btn-solid"
-            >
-              Reset Archive Filters
-            </button>
-          </div>
-        ) : (
-          <div>
-            {/* ─── LEAD FEATURED STORY ─── */}
-            {featured && (
-              <section className={`trb-lead-story ${featured.image_url ? "" : "trb-lead-story--text-only"}`} id="featured-dispatch">
-                <div>
-                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem", fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "var(--accent-red)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: "0.5rem" }}>
-                    {featured.is_pinned && <span className="trb-badge-red">⭐ LEAD STORY</span>}
-                    {featured.is_breaking && <span className="trb-badge-red" style={{ backgroundColor: "#D32F2F" }}>⚡ BREAKING</span>}
-                    <span className="trb-btn-pill" style={{ pointerEvents: "none" }}>{featured.category}</span>
-                    <span>•</span>
-                    <span>{formatDate(featured.published_at || featured.created_at)}</span>
-                  </div>
-
-                  <h1 className="trb-lead-title">
-                    <Link href={`/articles/${featured.slug}`}>
-                      {featured.title}
-                    </Link>
-                  </h1>
-
-                  <p className="trb-dropcap">
-                    {getArticlePreview(featured, 420)}
-                  </p>
-
-                  <div className="trb-byline-bar">
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <span style={{ width: "24px", height: "24px", borderRadius: "50%", background: "var(--fg-ink)", color: "var(--bg-paper)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem" }}>
-                        {featured.author.username.charAt(0).toUpperCase()}
-                      </span>
-                      <span>DISPATCH BY {featured.author.username}</span>
-                    </div>
-
-                    <Link href={`/articles/${featured.slug}`} className="trb-btn-solid" style={{ textDecoration: "none" }}>
-                      READ FULL DISPATCH →
-                    </Link>
-                  </div>
-                </div>
-
-                {featured.image_url && (
-                  <div>
-                    <Link href={`/articles/${featured.slug}`} className="trb-lead-image-box" style={{ display: "block", textDecoration: "none" }}>
-                      <Image src={featured.image_url} alt={featured.title} className="trb-lead-image" width={720} height={440} priority />
-                    </Link>
-                    {featured.image_caption && <p className="article-image-caption">{featured.image_caption}</p>}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* ─── SECONDARY DISPATCHES & SIDEBAR ─── */}
-            {secondaryArticles.length > 0 && (
-              <div className="trb-dispatches-layout">
-                {/* Dispatches Grid */}
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "3px double var(--border-color)", paddingBottom: "0.5rem", marginBottom: "1.5rem", fontFamily: "var(--font-mono)", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px" }}>
-                    <h2 style={{ fontFamily: "var(--font-headline)", fontSize: "1.4rem", fontWeight: 900 }}>Recent Dispatches & Columns</h2>
-                    <span className="trb-badge-red" style={{ backgroundColor: "var(--fg-ink)" }}>
-                      {secondaryArticles.length} STORIES AVAILABLE
-                    </span>
-                  </div>
-
-                  <div className={gridClass}>
-                    {secondaryArticles.map((art) => (
-                      <article key={art.id} className="trb-article-card">
-                        <div>
-                          {art.image_url && (
-                            <Link href={`/articles/${art.slug}`} className="trb-card-media">
-                              <Image src={art.image_url} alt="" width={480} height={300} />
-                            </Link>
-                          )}
-                          {art.image_url && art.image_caption && (
-                            <p className="card-image-caption">{art.image_caption}</p>
-                          )}
-
-                          <div className="trb-card-meta">
-                            <span style={{ fontWeight: 700, color: "var(--accent-red)" }}>{art.category}</span>
-                            <span>{formatDate(art.published_at || art.created_at)}</span>
-                          </div>
-
-                          <h3 className="trb-card-title">
-                            <Link href={`/articles/${art.slug}`}>{art.title}</Link>
-                          </h3>
-
-                          <p style={{ fontSize: "0.9rem", lineHeight: 1.6, opacity: 0.9 }}>
-                            {getArticlePreview(art, 160)}
-                          </p>
-                        </div>
-
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border-color)", paddingTop: "0.6rem", marginTop: "1rem", fontFamily: "var(--font-mono)", fontSize: "0.7rem", fontWeight: 700 }}>
-                          <span>BY {art.author.username.toUpperCase()}</span>
-                          <Link href={`/articles/${art.slug}`} className="trb-btn-pill" style={{ textDecoration: "none" }}>
-                            READ →
-                          </Link>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Sidebar */}
-                <aside>
-                  {/* Archives Search */}
-                  <div className="trb-sidebar-card">
-                    <h3 className="trb-sidebar-heading">🔎 Pressroom Archives</h3>
-                    <form onSubmit={(e) => { e.preventDefault(); fetchArticles(); }} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                      <input
-                        type="search"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Keywords, correspondents, tags..."
-                        className="trb-input"
-                        style={{ width: "100%" }}
-                      />
-                      <button type="submit" className="trb-btn-solid">
-                        SEARCH DISPATCHES
-                      </button>
-                    </form>
-                  </div>
-
-                  {/* Stats */}
-                  <div className="trb-sidebar-card">
-                    <h3 className="trb-sidebar-heading">📊 Edition Statistics</h3>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", textAlign: "center", fontFamily: "var(--font-mono)" }}>
-                      <div style={{ border: "1px solid var(--border-color)", padding: "0.75rem", borderRadius: "3px", background: "var(--bg-paper)" }}>
-                        <span style={{ display: "block", fontSize: "1.6rem", fontWeight: 900 }}>{articles.length}</span>
-                        <span style={{ fontSize: "0.65rem", textTransform: "uppercase", opacity: 0.8, fontWeight: 700 }}>Dispatches</span>
-                      </div>
-                      <div style={{ border: "1px solid var(--border-color)", padding: "0.75rem", borderRadius: "3px", background: "var(--bg-paper)" }}>
-                        <span style={{ display: "block", fontSize: "1.6rem", fontWeight: 900 }}>{totalReads}</span>
-                        <span style={{ fontSize: "0.65rem", textTransform: "uppercase", opacity: 0.8, fontWeight: 700 }}>Total Reads</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Creed */}
-                  <div className="trb-sidebar-card">
-                    <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem", fontWeight: 700, color: "var(--accent-red)", borderBottom: "1px solid var(--border-color)", paddingBottom: "0.4rem", marginBottom: "0.75rem" }}>
-                      ⚜️ THE EDITOR&apos;S CREED
-                    </div>
-                    <p style={{ fontFamily: "var(--font-headline)", fontStyle: "italic", fontSize: "0.95rem", lineHeight: 1.6 }}>
-                      &ldquo;We print sourced dispatches with uncompromised integrity. Read deeply, reflect patiently, and protect the public truth in black and white.&rdquo;
-                    </p>
-                    <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", fontWeight: 700, textAlign: "right", marginTop: "0.75rem", textTransform: "uppercase" }}>
-                      — Managing Editorial Board
-                    </p>
-                  </div>
-                </aside>
+      {!featured ? (
+        <section className="public-empty-state">
+          <p className="eyebrow">Pressroom</p>
+          <h1>No published stories yet</h1>
+          <p>The newsroom has not published an edition. Draft and review activity remains private.</p>
+        </section>
+      ) : (
+        <>
+          <section className="home-lead" aria-labelledby="top-story-heading">
+            <div className="home-lead-copy">
+              <p className="story-kicker">{featured.is_breaking ? "Breaking · " : ""}{featured.category}</p>
+              <h1 id="top-story-heading"><Link href={articleHref(featured)}>{featured.title}</Link></h1>
+              {featured.subtitle && <p className="home-deck">{featured.subtitle}</p>}
+              <p>{articlePreview(featured, 360)}</p>
+              <div className="story-byline">
+                <span>By <Link href={authorHref(featured.author)}>{featured.author.username}</Link></span>
+                <time dateTime={featured.published_at || featured.created_at}>{formatNewsDate(featured.published_at || featured.created_at, true)}</time>
               </div>
+              <Link href={articleHref(featured)} className="trb-btn-solid home-read-link">Read the full report</Link>
+            </div>
+            {featured.image_url && (
+              <figure>
+                <Link href={articleHref(featured)}><Image src={featured.image_url} alt={featured.image_caption || featured.title} width={900} height={560} priority /></Link>
+                {featured.image_caption && <figcaption>{featured.image_caption}</figcaption>}
+              </figure>
             )}
+          </section>
+
+          <div className="home-news-grid">
+            <section aria-labelledby="latest-heading">
+              <div className="section-heading"><div><p className="eyebrow">The latest</p><h2 id="latest-heading">Latest news</h2></div><Link href="/search?sort=newest">View all</Link></div>
+              <div className="latest-grid">{latest.map((article) => <ArticleCard key={article.id} article={article} />)}</div>
+            </section>
+            <aside className="most-read" aria-labelledby="most-read-heading">
+              <div className="section-heading"><div><p className="eyebrow">Reader interest</p><h2 id="most-read-heading">Most read</h2></div></div>
+              <ol>{mostRead.map((article, index) => <li key={article.id}><span>{String(index + 1).padStart(2, "0")}</span><ArticleCard article={article} compact /></li>)}</ol>
+              <AdSlot slot="sidebar" settings={settings} />
+            </aside>
           </div>
-        )}
-      </main>
 
-      {/* 3. Footer */}
-      <footer style={{ marginTop: "4rem", borderTop: "4px double var(--border-color)", paddingTop: "1.5rem", textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "0.75rem" }}>
-        <p style={{ fontWeight: 800, letterSpacing: "1px", fontSize: "0.85rem", marginBottom: "0.4rem" }}>
-          THE REPUBLIC BULLETIN PUBLISHING HOUSE
-        </p>
+          <AdSlot slot="in_feed" settings={settings} />
 
-        <p style={{ opacity: 0.75 }}>
-          ALL RIGHTS RESERVED • PRINTED ON VINTAGE STACK DIGITAL PRESSES • UNIFIED SUBDOMAIN ARCHITECTURE
-        </p>
-      </footer>
+          <div className="home-sections">
+            {availableSections.map((section) => (
+              <section key={section.label} aria-labelledby={`section-${section.label.replace(/\s+/g, "-").toLowerCase()}`}>
+                <div className="section-heading">
+                  <div><p className="eyebrow">Section</p><h2 id={`section-${section.label.replace(/\s+/g, "-").toLowerCase()}`}>{section.label}</h2></div>
+                  <Link href={section.label === "Fact Check" ? "/fact-check" : `/section/${encodeURIComponent(section.label.toLowerCase())}`}>More {section.label}</Link>
+                </div>
+                <div className="section-story-grid">{section.articles.map((article) => <ArticleCard key={article.id} article={article} compact={section.articles.length > 2} />)}</div>
+              </section>
+            ))}
+          </div>
 
+          {settings.newsletter?.enabled !== false && <NewsletterSignup
+            name={settings.newsletter?.name || "The Republic Brief"}
+            description={settings.newsletter?.description || "The biggest stories you need to know today, selected by the newsroom."}
+            source="homepage"
+          />}
+
+          <section className="archive-callout">
+            <div><p className="eyebrow">Public record</p><h2>Browse the archive</h2><p>Explore published reporting by year, month, and section.</p></div>
+            <Link href="/archive" className="trb-btn-solid">Open the archive</Link>
+          </section>
+        </>
+      )}
       <OnboardingTour />
-    </div>
+    </PublicShell>
   );
 }

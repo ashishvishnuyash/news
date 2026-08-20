@@ -1,4 +1,5 @@
 from typing import Optional, List
+from datetime import datetime, timezone
 import re
 import unicodedata
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
@@ -44,6 +45,13 @@ async def generate_unique_slug(title: str, db: AsyncSession, exclude_id: Optiona
 
 
 router = APIRouter(prefix="/api/articles", tags=["Articles"])
+
+
+def database_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    """Store editor-entered timestamps as naive UTC for SQLite/PostgreSQL parity."""
+    if value is not None and value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
 
 # ──────────────────────────────────────────────────────────────
@@ -112,7 +120,7 @@ async def list_editor_queue(
     )
     normalized_status = status_filter.upper() if status_filter else None
     if normalized_status and normalized_status != "ALL":
-        if normalized_status not in {"DRAFT", "SUBMITTED", "PUBLISHED", "REJECTED"}:
+        if normalized_status not in {"DRAFT", "FACT_CHECK", "EDITOR_REVIEW", "APPROVED", "SCHEDULED", "SUBMITTED", "PUBLISHED", "REJECTED"}:
             raise HTTPException(status_code=400, detail="Invalid article status filter")
         query = query.filter(Article.status == normalized_status)
     elif normalized_status is None:
@@ -129,6 +137,7 @@ async def list_editor_queue(
 @router.get("/{slug_or_id}", response_model=ArticleResponse)
 async def get_article(
     slug_or_id: str,
+    track_view: bool = Query(default=True, description="Increment the public view counter"),
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Depends(get_token),
 ):
@@ -148,7 +157,7 @@ async def get_article(
         raise HTTPException(status_code=404, detail="Article not found")
 
     # Increment view count for published articles
-    if article.status == "PUBLISHED":
+    if article.status == "PUBLISHED" and track_view:
         article.view_count = (article.view_count or 0) + 1
         db.add(article)
         await db.commit()
@@ -189,19 +198,35 @@ async def create_article(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new article draft."""
-    slug = await generate_unique_slug(article_in.title, db)
+    slug = await generate_unique_slug(article_in.slug or article_in.title, db)
     clean_content = sanitize_article_html(article_in.content)
+    author_id = current_user.id
+    if article_in.author_id and article_in.author_id != current_user.id:
+        if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
+            raise HTTPException(status_code=403, detail="Only administrators can assign another author")
+        assigned_author = (await db.execute(select(User).filter(User.id == article_in.author_id))).scalars().first()
+        if not assigned_author or assigned_author.role not in ["JOURNALIST", "EDITOR", "ADMIN", "SUPER_ADMIN"]:
+            raise HTTPException(status_code=400, detail="Choose a valid newsroom author")
+        author_id = assigned_author.id
     db_article = Article(
         title=article_in.title,
         slug=slug,
+        subtitle=article_in.subtitle.strip() if article_in.subtitle else None,
         content=clean_content,
         summary=article_in.summary.strip(),
         category=article_in.category,
         image_url=article_in.image_url,
         image_caption=article_in.image_caption.strip() if article_in.image_caption else None,
         tags=article_in.tags,
+        sources=article_in.sources.strip() if article_in.sources else None,
+        seo_title=article_in.seo_title.strip() if article_in.seo_title else None,
+        seo_description=article_in.seo_description.strip() if article_in.seo_description else None,
+        og_image_url=article_in.og_image_url,
+        article_type=article_in.article_type,
+        fact_check_rating=article_in.fact_check_rating,
+        scheduled_at=database_datetime(article_in.scheduled_at),
         status="DRAFT",
-        author_id=current_user.id,
+        author_id=author_id,
     )
     db.add(db_article)
     await db.commit()
@@ -253,10 +278,16 @@ async def update_article(
 
     update_data = article_update.model_dump(exclude_unset=True)
 
+    if "scheduled_at" in update_data:
+        update_data["scheduled_at"] = database_datetime(update_data["scheduled_at"])
+
     if "content" in update_data:
         update_data["content"] = sanitize_article_html(update_data["content"])
     if "summary" in update_data and update_data["summary"] is not None:
         update_data["summary"] = update_data["summary"].strip()
+    for text_field in ("subtitle", "sources", "seo_title", "seo_description"):
+        if text_field in update_data and update_data[text_field] is not None:
+            update_data[text_field] = update_data[text_field].strip() or None
     effective_image = update_data.get("image_url", article.image_url)
     if not effective_image:
         update_data["image_url"] = None
@@ -267,14 +298,35 @@ async def update_article(
     if not is_editor and ({"is_pinned", "is_breaking"} & update_data.keys()):
         raise HTTPException(status_code=403, detail="Only editors can change front-page placement")
 
+    if "author_id" in update_data and update_data["author_id"] != article.author_id:
+        if not is_editor:
+            raise HTTPException(status_code=403, detail="Only editors can reassign an article")
+        assigned_author = (await db.execute(select(User).filter(User.id == update_data["author_id"]))).scalars().first()
+        if not assigned_author or assigned_author.role not in ["JOURNALIST", "EDITOR", "ADMIN", "SUPER_ADMIN"]:
+            raise HTTPException(status_code=400, detail="Choose a valid newsroom author")
+
+    if "slug" in update_data:
+        requested_slug = slugify(update_data.pop("slug"))
+        if not requested_slug:
+            raise HTTPException(status_code=400, detail="Slug cannot be empty")
+        duplicate = (await db.execute(select(Article).filter(
+            Article.slug == requested_slug,
+            Article.id != article.id,
+        ))).scalars().first()
+        if duplicate:
+            raise HTTPException(status_code=409, detail="That article slug is already in use")
+        article.slug = requested_slug
+
     # Handle status transitions
     new_status = update_data.get("status")
     if new_status:
         effective_summary = update_data.get("summary", article.summary)
-        if new_status in ["SUBMITTED", "PUBLISHED"] and not (effective_summary and effective_summary.strip()):
+        if new_status in ["FACT_CHECK", "EDITOR_REVIEW", "APPROVED", "SCHEDULED", "SUBMITTED", "PUBLISHED"] and not (effective_summary and effective_summary.strip()):
             raise HTTPException(status_code=400, detail="A written summary is required before submission")
+        if new_status == "SCHEDULED" and not update_data.get("scheduled_at", article.scheduled_at):
+            raise HTTPException(status_code=400, detail="Choose a publication time before scheduling")
         if is_author and not is_editor:
-            if new_status not in ["DRAFT", "SUBMITTED"]:
+            if new_status not in ["DRAFT", "FACT_CHECK", "EDITOR_REVIEW", "SUBMITTED"]:
                 raise HTTPException(status_code=400, detail="Invalid status transition for journalist")
         elif is_editor:
             previous_status = article.status
@@ -307,6 +359,7 @@ async def update_article(
         "title" in update_data
         and update_data["title"] != article.title
         and article.status != "PUBLISHED"
+        and article.slug == slugify(article.title)
     ):
         article.slug = await generate_unique_slug(update_data["title"], db, exclude_id=article.id)
 

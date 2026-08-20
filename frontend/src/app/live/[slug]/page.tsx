@@ -1,0 +1,13 @@
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import Link from "next/link";
+import JsonLd from "../../components/JsonLd";
+import NewsletterSignup from "../../components/NewsletterSignup";
+import PageHeader from "../../components/PageHeader";
+import PublicShell from "../../components/PublicShell";
+import { authorHref, formatNewsDate, getArticle, getLiveUpdates } from "../../../lib/news";
+import { siteUrl } from "../../../lib/config";
+
+type LiveProps = { params: Promise<{ slug: string }> };
+export async function generateMetadata({ params }: LiveProps): Promise<Metadata> { const { slug } = await params; const article = await getArticle(slug); return article ? { title: `Live · ${article.title}`, description: article.seo_description || article.summary || article.subtitle || undefined } : { title: "Live coverage not found", robots: { index: false } }; }
+export default async function LivePage({ params }: LiveProps) { const { slug } = await params; const [article, updates] = await Promise.all([getArticle(slug), getLiveUpdates(slug)]); if (!article || article.article_type !== "LIVE") notFound(); const jsonLd = { "@context": "https://schema.org", "@type": "LiveBlogPosting", headline: article.title, description: article.summary, datePublished: article.published_at || article.created_at, dateModified: article.updated_at, url: siteUrl(`/live/${slug}`), author: { "@type": "Person", name: article.author.username } }; return <PublicShell><JsonLd data={jsonLd} /><PageHeader eyebrow="Live coverage" title={article.title} description={article.subtitle || article.summary || undefined} crumbs={[{ label: "Live" }, { label: article.title }]} /><div className="live-meta">By <Link href={authorHref(article.author)}>{article.author.username}</Link> · Started {formatNewsDate(article.published_at || article.created_at, true)}</div><div className="article-prose" dangerouslySetInnerHTML={{ __html: article.content }} /><section className="live-timeline" aria-labelledby="live-updates-heading"><div className="section-heading"><div><p className="eyebrow">Latest first</p><h2 id="live-updates-heading">Live updates</h2></div><span aria-live="polite">{updates.length} updates</span></div>{updates.length ? updates.map((update) => <article key={update.id}><time dateTime={update.created_at}>{formatNewsDate(update.created_at, true)}</time><div dangerouslySetInnerHTML={{ __html: update.content }} /><p>Filed by {update.author.username}</p></article>) : <p className="configuration-note">No live updates have been filed yet.</p>}</section><NewsletterSignup source={`live-${slug}`} /></PublicShell>; }

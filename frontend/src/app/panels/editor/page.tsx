@@ -16,12 +16,20 @@ interface ReviewComment {
 
 interface EditorForm {
   title: string;
+  subtitle: string;
   summary: string;
   content: string;
   category: string;
+  article_type: Article["article_type"];
+  fact_check_rating: NonNullable<Article["fact_check_rating"]> | "";
   image_url: string;
   image_caption: string;
+  og_image_url: string;
   tags: string;
+  sources: string;
+  seo_title: string;
+  seo_description: string;
+  scheduled_at: string;
   is_pinned: boolean;
   is_breaking: boolean;
 }
@@ -29,11 +37,15 @@ interface EditorForm {
 type StatusFilter = ArticleStatus | "ALL";
 type Notice = { type: "success" | "error"; text: string };
 
-const STATUS_OPTIONS: StatusFilter[] = ["ALL", "SUBMITTED", "DRAFT", "REJECTED", "PUBLISHED"];
+const STATUS_OPTIONS: StatusFilter[] = ["ALL", "FACT_CHECK", "EDITOR_REVIEW", "APPROVED", "SCHEDULED", "SUBMITTED", "DRAFT", "REJECTED", "PUBLISHED"];
 
 const STATUS_COLOR: Record<ArticleStatus, string> = {
   PUBLISHED: "#35613d",
   DRAFT: "#666",
+  FACT_CHECK: "#8a5a16",
+  EDITOR_REVIEW: "#214c7a",
+  APPROVED: "#35613d",
+  SCHEDULED: "#6b3f83",
   SUBMITTED: "#214c7a",
   REJECTED: "var(--accent-red)",
 };
@@ -41,12 +53,20 @@ const STATUS_COLOR: Record<ArticleStatus, string> = {
 function formFromArticle(article: Article): EditorForm {
   return {
     title: article.title,
+    subtitle: article.subtitle || "",
     summary: article.summary || "",
     content: article.content,
     category: article.category,
+    article_type: article.article_type || "NEWS",
+    fact_check_rating: article.fact_check_rating || "",
     image_url: article.image_url || "",
     image_caption: article.image_caption || "",
+    og_image_url: article.og_image_url || "",
     tags: article.tags || "",
+    sources: article.sources || "",
+    seo_title: article.seo_title || "",
+    seo_description: article.seo_description || "",
+    scheduled_at: article.scheduled_at ? article.scheduled_at.slice(0, 16) : "",
     is_pinned: article.is_pinned,
     is_breaking: article.is_breaking,
   };
@@ -57,6 +77,10 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
+function csvCell(value: string | number | null | undefined) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
 export default function EditorQueue() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
@@ -64,6 +88,9 @@ export default function EditorQueue() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("SUBMITTED");
   const [search, setSearch] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [correctionSummary, setCorrectionSummary] = useState("");
+  const [correctionDetails, setCorrectionDetails] = useState("");
+  const [liveUpdate, setLiveUpdate] = useState("");
   const [editing, setEditing] = useState(false);
   const [editorForm, setEditorForm] = useState<EditorForm | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,7 +130,17 @@ export default function EditorQueue() {
   }, [loadQueue]);
 
   const counts = useMemo(() => {
-    const values: Record<StatusFilter, number> = { ALL: articles.length, DRAFT: 0, SUBMITTED: 0, PUBLISHED: 0, REJECTED: 0 };
+    const values: Record<StatusFilter, number> = {
+      ALL: articles.length,
+      DRAFT: 0,
+      FACT_CHECK: 0,
+      EDITOR_REVIEW: 0,
+      APPROVED: 0,
+      SCHEDULED: 0,
+      SUBMITTED: 0,
+      PUBLISHED: 0,
+      REJECTED: 0,
+    };
     articles.forEach((article) => { values[article.status] += 1; });
     return values;
   }, [articles]);
@@ -118,11 +155,28 @@ export default function EditorQueue() {
     });
   }, [articles, search, statusFilter]);
 
+  const downloadQueue = () => {
+    const rows = [
+      ["ID", "Headline", "Author", "Category", "Status", "Views", "Updated"],
+      ...visibleArticles.map((article) => [article.id, article.title, article.author.username, article.category, article.status, article.view_count, article.updated_at]),
+    ];
+    const blob = new Blob([rows.map((row) => row.map(csvCell).join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `editorial-queue-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   const selectArticle = (article: Article) => {
     setSelectedArticle(article);
     setEditing(false);
     setEditorForm(null);
     setFeedback("");
+    setCorrectionSummary("");
+    setCorrectionDetails("");
+    setLiveUpdate("");
     setNotice(null);
     void loadReviews(article.id);
   };
@@ -156,6 +210,10 @@ export default function EditorQueue() {
     const prompts: Record<ArticleStatus, string> = {
       PUBLISHED: "Publish this story to the live front page now?",
       DRAFT: selectedArticle.status === "PUBLISHED" ? "Unpublish this story and return it to draft?" : "Move this story back to draft?",
+      FACT_CHECK: "Move this story to fact checking?",
+      EDITOR_REVIEW: "Move this story to editor review?",
+      APPROVED: "Mark this story approved and ready for publication?",
+      SCHEDULED: "Schedule this story for its selected publication time?",
       SUBMITTED: "Place this story in the editorial review queue?",
       REJECTED: "Return this story to the writer for revision?",
     };
@@ -163,6 +221,10 @@ export default function EditorQueue() {
     const messages: Record<ArticleStatus, string> = {
       PUBLISHED: "The story is now published.",
       DRAFT: "The story was moved to draft.",
+      FACT_CHECK: "The story is now awaiting fact checking.",
+      EDITOR_REVIEW: "The story is now in editor review.",
+      APPROVED: "The story was approved for publication.",
+      SCHEDULED: "The story was scheduled for publication.",
       SUBMITTED: "The story was moved into editorial review.",
       REJECTED: "The story was returned to the writer.",
     };
@@ -182,10 +244,17 @@ export default function EditorQueue() {
       ...editorForm,
       title: editorForm.title.trim(),
       summary: editorForm.summary.trim(),
+      subtitle: editorForm.subtitle.trim() || null,
       category: editorForm.category.trim(),
       image_url: editorForm.image_url.trim() || null,
       image_caption: editorForm.image_url.trim() ? editorForm.image_caption.trim() || null : null,
+      og_image_url: editorForm.og_image_url.trim() || null,
       tags: editorForm.tags.trim() || null,
+      sources: editorForm.sources.trim() || null,
+      seo_title: editorForm.seo_title.trim() || null,
+      seo_description: editorForm.seo_description.trim() || null,
+      fact_check_rating: editorForm.article_type === "FACT_CHECK" ? editorForm.fact_check_rating || null : null,
+      scheduled_at: editorForm.scheduled_at ? new Date(editorForm.scheduled_at).toISOString() : null,
     }, "Editorial changes were saved.");
     if (saved) {
       setEditing(false);
@@ -247,6 +316,47 @@ export default function EditorQueue() {
     }
   };
 
+  const recordCorrection = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedArticle || !correctionSummary.trim()) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const response = await apiFetch(apiUrl("/api/corrections"), {
+        method: "POST",
+        body: JSON.stringify({ article_id: selectedArticle.id, summary: correctionSummary.trim(), details: correctionDetails.trim() || null }),
+      });
+      if (!response.ok) throw new Error(await apiErrorMessage(response, "The correction could not be recorded."));
+      setCorrectionSummary("");
+      setCorrectionDetails("");
+      setNotice({ type: "success", text: "The correction is now in the public corrections ledger." });
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "The correction could not be recorded." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const postLiveUpdate = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedArticle || !liveUpdate.trim()) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const response = await apiFetch(apiUrl(`/api/live/${selectedArticle.id}/updates`), {
+        method: "POST",
+        body: JSON.stringify({ content: liveUpdate.trim() }),
+      });
+      if (!response.ok) throw new Error(await apiErrorMessage(response, "The live update could not be posted."));
+      setLiveUpdate("");
+      setNotice({ type: "success", text: "The timestamped live update is now published." });
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "The live update could not be posted." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="editor-desk">
       <header className="editor-heading">
@@ -255,13 +365,16 @@ export default function EditorQueue() {
           <h2>Review board & publication queue</h2>
           <p>Review, revise, schedule, publish, return, and manage front-page placement.</p>
         </div>
-        <button className="trb-btn-pill" onClick={() => void loadQueue()} disabled={loading || busy}>Refresh queue</button>
+        <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+          <button className="trb-btn-pill" onClick={downloadQueue} disabled={visibleArticles.length === 0}>Export CSV</button>
+          <button className="trb-btn-pill" onClick={() => void loadQueue()} disabled={loading || busy}>Refresh queue</button>
+        </div>
       </header>
 
       {notice && <div className={`crud-notice ${notice.type}`} role="status">{notice.text}</div>}
 
       <section className="editor-metrics" aria-label="Editorial queue totals">
-        {(["SUBMITTED", "DRAFT", "REJECTED", "PUBLISHED"] as ArticleStatus[]).map((status) => (
+        {(["FACT_CHECK", "EDITOR_REVIEW", "APPROVED", "SCHEDULED", "PUBLISHED"] as ArticleStatus[]).map((status) => (
           <button key={status} onClick={() => setStatusFilter(status)} aria-pressed={statusFilter === status}>
             <strong>{counts[status]}</strong><span>{status}</span>
           </button>
@@ -332,7 +445,10 @@ export default function EditorQueue() {
                 <div className="editor-actions">
                   <button onClick={openEditor} disabled={busy || editing}>Edit story</button>
                   {selectedArticle.status !== "PUBLISHED" && <button className="publish" onClick={() => void changeStatus("PUBLISHED")} disabled={busy}>Publish now</button>}
-                  {(selectedArticle.status === "DRAFT" || selectedArticle.status === "REJECTED") && <button onClick={() => void changeStatus("SUBMITTED")} disabled={busy}>Move to review</button>}
+                  {selectedArticle.status !== "FACT_CHECK" && selectedArticle.status !== "PUBLISHED" && <button onClick={() => void changeStatus("FACT_CHECK")} disabled={busy}>Fact check</button>}
+                  {selectedArticle.status !== "EDITOR_REVIEW" && selectedArticle.status !== "PUBLISHED" && <button onClick={() => void changeStatus("EDITOR_REVIEW")} disabled={busy}>Editor review</button>}
+                  {selectedArticle.status !== "APPROVED" && selectedArticle.status !== "PUBLISHED" && <button onClick={() => void changeStatus("APPROVED")} disabled={busy}>Approve</button>}
+                  {selectedArticle.scheduled_at && selectedArticle.status !== "SCHEDULED" && selectedArticle.status !== "PUBLISHED" && <button onClick={() => void changeStatus("SCHEDULED")} disabled={busy}>Schedule</button>}
                   {selectedArticle.status !== "DRAFT" && <button onClick={() => void changeStatus("DRAFT")} disabled={busy}>{selectedArticle.status === "PUBLISHED" ? "Unpublish" : "Move to draft"}</button>}
                   {selectedArticle.status === "PUBLISHED" && selectedArticle.slug && <a href={siteUrl(`/articles/${selectedArticle.slug}`)} target="_blank" rel="noreferrer">View live ↗</a>}
                 </div>
@@ -342,11 +458,19 @@ export default function EditorQueue() {
                 <form className="editor-edit-form" onSubmit={saveEdits}>
                   <div className="editor-edit-title"><h3>Edit article copy</h3><button type="button" onClick={() => setEditing(false)}>Close editor</button></div>
                   <label className="editor-wide">Headline<input required minLength={5} maxLength={220} value={editorForm.title} onChange={(event) => setEditorForm({ ...editorForm, title: event.target.value })} /></label>
+                  <label className="editor-wide">Subheadline / deck<input maxLength={300} value={editorForm.subtitle} onChange={(event) => setEditorForm({ ...editorForm, subtitle: event.target.value })} /></label>
                   <label className="editor-wide">Summary<textarea required minLength={10} maxLength={800} rows={3} value={editorForm.summary} onChange={(event) => setEditorForm({ ...editorForm, summary: event.target.value })} /></label>
                   <label>Category<input required minLength={2} maxLength={80} value={editorForm.category} onChange={(event) => setEditorForm({ ...editorForm, category: event.target.value })} /></label>
+                  <label>Story type<select value={editorForm.article_type} onChange={(event) => setEditorForm({ ...editorForm, article_type: event.target.value as Article["article_type"] })}><option value="NEWS">News</option><option value="OPINION">Opinion</option><option value="INVESTIGATION">Investigation</option><option value="FACT_CHECK">Fact check</option><option value="LIVE">Live coverage</option></select></label>
+                  {editorForm.article_type === "FACT_CHECK" && <label>Fact-check rating<select value={editorForm.fact_check_rating} onChange={(event) => setEditorForm({ ...editorForm, fact_check_rating: event.target.value as EditorForm["fact_check_rating"] })}><option value="">Pending verdict</option><option value="TRUE">True</option><option value="FALSE">False</option><option value="PARTLY_TRUE">Partly true</option><option value="MISLEADING">Misleading</option><option value="UNVERIFIED">Unverified</option></select></label>}
                   <label>Tags<input maxLength={500} value={editorForm.tags} onChange={(event) => setEditorForm({ ...editorForm, tags: event.target.value })} /></label>
                   <label className="editor-wide">Cover image URL<input type="url" value={editorForm.image_url} onChange={(event) => setEditorForm({ ...editorForm, image_url: event.target.value })} /></label>
                   <label className="editor-wide">Image caption<input maxLength={300} disabled={!editorForm.image_url.trim()} value={editorForm.image_caption} onChange={(event) => setEditorForm({ ...editorForm, image_caption: event.target.value })} /></label>
+                  <label className="editor-wide">Social preview image URL<input type="url" value={editorForm.og_image_url} onChange={(event) => setEditorForm({ ...editorForm, og_image_url: event.target.value })} /></label>
+                  <label className="editor-wide">Sources / references<textarea rows={4} maxLength={5000} value={editorForm.sources} onChange={(event) => setEditorForm({ ...editorForm, sources: event.target.value })} placeholder="One source or reference per line" /></label>
+                  <label className="editor-wide">SEO title<input maxLength={220} value={editorForm.seo_title} onChange={(event) => setEditorForm({ ...editorForm, seo_title: event.target.value })} /></label>
+                  <label className="editor-wide">SEO description<textarea rows={2} maxLength={500} value={editorForm.seo_description} onChange={(event) => setEditorForm({ ...editorForm, seo_description: event.target.value })} /></label>
+                  <label>Publication time<input type="datetime-local" value={editorForm.scheduled_at} onChange={(event) => setEditorForm({ ...editorForm, scheduled_at: event.target.value })} /></label>
                   <label className="editor-check"><input type="checkbox" checked={editorForm.is_pinned} onChange={(event) => setEditorForm({ ...editorForm, is_pinned: event.target.checked })} /> Lead story / front-page placement</label>
                   <label className="editor-check"><input type="checkbox" checked={editorForm.is_breaking} onChange={(event) => setEditorForm({ ...editorForm, is_breaking: event.target.checked })} /> Breaking-news treatment</label>
                   <div className="editor-wide"><span className="editor-field-label">Article body</span><RichTextEditor value={editorForm.content} onChange={(content) => setEditorForm((current) => current ? { ...current, content } : current)} placeholder="Edit the article body…" /></div>
@@ -361,6 +485,7 @@ export default function EditorQueue() {
                     {selectedArticle.editor && <span>Editor {selectedArticle.editor.username}</span>}
                   </div>
                   <p className="editor-summary">{selectedArticle.summary || "No summary supplied."}</p>
+                  {selectedArticle.subtitle && <p className="editor-summary">{selectedArticle.subtitle}</p>}
                   {selectedArticle.image_url && (
                     <figure className="editor-cover">
                       <Image src={selectedArticle.image_url} alt={selectedArticle.image_caption || "Article cover"} width={1200} height={675} unoptimized />
@@ -368,9 +493,10 @@ export default function EditorQueue() {
                     </figure>
                   )}
                   {selectedArticle.tags && <p className="editor-tags">Tags: {selectedArticle.tags}</p>}
+                  {selectedArticle.sources && <p className="editor-tags">Sources recorded: {selectedArticle.sources.split(/\r?\n/).filter(Boolean).length}</p>}
                   <div className="editor-body" dangerouslySetInnerHTML={{ __html: selectedArticle.content }} />
                   <div className="editor-publication-meta">
-                    <span>{selectedArticle.view_count} views</span><span>Published {formatDate(selectedArticle.published_at)}</span><span>{selectedArticle.is_pinned ? "Lead story" : "Standard placement"}</span><span>{selectedArticle.is_breaking ? "Breaking news" : "Standard story"}</span>
+                    <span>{selectedArticle.view_count} views</span><span>{selectedArticle.article_type.replace("_", " ")}</span><span>Scheduled {formatDate(selectedArticle.scheduled_at)}</span><span>Published {formatDate(selectedArticle.published_at)}</span><span>{selectedArticle.is_pinned ? "Lead story" : "Standard placement"}</span><span>{selectedArticle.is_breaking ? "Breaking news" : "Standard story"}</span>
                   </div>
                 </article>
               )}
@@ -394,6 +520,30 @@ export default function EditorQueue() {
                   </div>
                 </form>
               </section>
+
+              {selectedArticle.status === "PUBLISHED" && (
+                <section className="editor-review-log">
+                  <div className="editor-review-heading"><div><p className="eyebrow">Public transparency</p><h3>Record a correction</h3></div></div>
+                  <form onSubmit={recordCorrection} className="editor-note-form">
+                    <label htmlFor="correction-summary">Public correction summary</label>
+                    <input id="correction-summary" value={correctionSummary} onChange={(event) => setCorrectionSummary(event.target.value)} minLength={5} maxLength={500} placeholder="State precisely what was corrected" />
+                    <label htmlFor="correction-details">Additional details</label>
+                    <textarea id="correction-details" value={correctionDetails} onChange={(event) => setCorrectionDetails(event.target.value)} maxLength={5000} rows={3} />
+                    <button className="trb-btn-solid" disabled={busy || correctionSummary.trim().length < 5}>Publish correction record</button>
+                  </form>
+                </section>
+              )}
+
+              {selectedArticle.article_type === "LIVE" && (
+                <section className="editor-review-log">
+                  <div className="editor-review-heading"><div><p className="eyebrow">Live desk</p><h3>Add timestamped update</h3></div></div>
+                  <form onSubmit={postLiveUpdate} className="editor-note-form">
+                    <label htmlFor="live-update">Update text</label>
+                    <textarea id="live-update" value={liveUpdate} onChange={(event) => setLiveUpdate(event.target.value)} maxLength={10000} rows={5} placeholder="Verified development for the live timeline…" />
+                    <button className="trb-btn-solid" disabled={busy || !liveUpdate.trim()}>Publish live update</button>
+                  </form>
+                </section>
+              )}
             </>
           )}
         </main>

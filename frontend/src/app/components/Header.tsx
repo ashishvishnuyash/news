@@ -13,6 +13,7 @@ interface HeaderProps {
   onSearchChange?: (query: string) => void;
   activeDensity?: string;
   onDensityChange?: (density: string) => void;
+  initialSettings?: SiteSettings;
 }
 
 const DEFAULT_SETTINGS: SiteSettings = {
@@ -38,12 +39,13 @@ export default function Header({
   onSearchChange,
   activeDensity = "broadsheet",
   onDensityChange,
+  initialSettings,
 }: HeaderProps) {
   const router = useRouter();
   const [theme, setTheme] = useState("parchment");
   const [fontSize, setFontSize] = useState("medium");
   const [user, setUser] = useState<User | null>(null);
-  const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<SiteSettings>(initialSettings || DEFAULT_SETTINGS);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -94,7 +96,9 @@ export default function Header({
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onSearchChange?.(query.trim());
+    const normalized = query.trim();
+    if (onSearchChange) onSearchChange(normalized);
+    else router.push(`/search${normalized ? `?q=${encodeURIComponent(normalized)}` : ""}`);
   };
 
   const currentDate = new Intl.DateTimeFormat("en-IN", {
@@ -203,30 +207,39 @@ export default function Header({
       <div className="section-bar" id="category-bar">
         <nav aria-label="News sections" className="section-nav">
           {categories.map((category) => (
-            <button
-              key={category}
-              type="button"
-              className={currentCategory.toLowerCase() === category.toLowerCase() ? "is-active" : ""}
-              aria-pressed={currentCategory.toLowerCase() === category.toLowerCase()}
-              onClick={() => onCategoryChange?.(category)}
-            >
-              {category}
-            </button>
+            onCategoryChange ? (
+              <button
+                key={category}
+                type="button"
+                className={currentCategory.toLowerCase() === category.toLowerCase() ? "is-active" : ""}
+                aria-pressed={currentCategory.toLowerCase() === category.toLowerCase()}
+                onClick={() => onCategoryChange(category)}
+              >
+                {category}
+              </button>
+            ) : (
+              <Link
+                key={category}
+                href={category === "All" ? "/" : `/section/${encodeURIComponent(category.toLowerCase())}`}
+                className={currentCategory.toLowerCase() === category.toLowerCase() ? "is-active" : ""}
+                aria-current={currentCategory.toLowerCase() === category.toLowerCase() ? "page" : undefined}
+              >
+                {category}
+              </Link>
+            )
           ))}
         </nav>
-        {onSearchChange && (
-          <form className="archive-search" role="search" onSubmit={submitSearch}>
-            <label className="sr-only" htmlFor="archive-query">Search stories</label>
-            <input
-              id="archive-query"
-              type="search"
-              placeholder="Search the archive"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <button type="submit" aria-label="Search">Search</button>
-          </form>
-        )}
+        <form className="archive-search" role="search" onSubmit={submitSearch}>
+          <label className="sr-only" htmlFor="archive-query">Search stories</label>
+          <input
+            id="archive-query"
+            type="search"
+            placeholder="Search the archive"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <button type="submit" aria-label="Search">Search</button>
+        </form>
       </div>
     </header>
   );

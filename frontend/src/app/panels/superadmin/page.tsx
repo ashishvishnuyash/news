@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiErrorMessage, apiFetch } from "../../../lib/auth";
 import { apiUrl } from "../../../lib/config";
@@ -21,8 +21,25 @@ export default function SuperAdminPanel() {
   const [commentsEnabled, setCommentsEnabled] = useState(true);
   const [registrationOpen, setRegistrationOpen] = useState(true);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [contact, setContact] = useState<NonNullable<SiteSettings["contact"]>>({});
+  const [publication, setPublication] = useState<NonNullable<SiteSettings["publication"]>>({});
+  const [adsEnabled, setAdsEnabled] = useState(false);
+  const [adSlots, setAdSlots] = useState<NonNullable<NonNullable<SiteSettings["advertising"]>["slots"]>>({});
+  const [newsletterEnabled, setNewsletterEnabled] = useState(true);
+  const [newsletterName, setNewsletterName] = useState("The Republic Brief");
+  const [newsletterDescription, setNewsletterDescription] = useState("The biggest stories you need to know today.");
+  const [analyticsProvider, setAnalyticsProvider] = useState("");
+  const [analyticsMeasurementId, setAnalyticsMeasurementId] = useState("");
 
   const [users, setUsers] = useState<User[]>([]);
+  const [userSearch, setUserSearch] = useState("");
+
+  const visibleUsers = useMemo(() => {
+    const query = userSearch.trim().toLowerCase();
+    if (!query) return users;
+    return users.filter((account) => [account.username, account.email, account.role]
+      .some((value) => value?.toLowerCase().includes(query)));
+  }, [userSearch, users]);
 
   useEffect(() => {
     apiFetch(apiUrl("/api/auth/me"))
@@ -63,6 +80,21 @@ export default function SuperAdminPanel() {
           if (feats.registration_open !== undefined) setRegistrationOpen(feats.registration_open);
           if (feats.maintenance_mode !== undefined) setMaintenanceMode(feats.maintenance_mode);
         }
+        if (data.contact) setContact(data.contact);
+        if (data.publication) setPublication(data.publication);
+        if (data.advertising) {
+          setAdsEnabled(Boolean(data.advertising.enabled));
+          if (data.advertising.slots) setAdSlots(data.advertising.slots);
+        }
+        if (data.newsletter) {
+          if (data.newsletter.enabled !== undefined) setNewsletterEnabled(Boolean(data.newsletter.enabled));
+          if (data.newsletter.name) setNewsletterName(data.newsletter.name);
+          if (data.newsletter.description) setNewsletterDescription(data.newsletter.description);
+        }
+        if (data.analytics) {
+          setAnalyticsProvider(data.analytics.provider || "");
+          setAnalyticsMeasurementId(data.analytics.measurement_id || "");
+        }
       }
     } catch (err) {
       console.error("Error loading settings:", err);
@@ -96,6 +128,11 @@ export default function SuperAdminPanel() {
           registration_open: registrationOpen,
           maintenance_mode: maintenanceMode,
         },
+        contact,
+        publication,
+        advertising: { enabled: adsEnabled, slots: adSlots },
+        newsletter: { enabled: newsletterEnabled, name: newsletterName, description: newsletterDescription },
+        analytics: { provider: analyticsProvider.trim(), measurement_id: analyticsMeasurementId.trim() },
       };
 
       const res = await apiFetch(apiUrl("/api/settings"), {
@@ -348,6 +385,46 @@ export default function SuperAdminPanel() {
               </div>
             </div>
 
+            <h2 className="trb-sidebar-heading" style={{ fontSize: "1.2rem" }}>
+              5. Publication Identity & Newsroom Contact
+            </h2>
+            <p className="configuration-note">Leave unknown legal or contact details blank. Blank fields are shown publicly as unconfigured instead of being invented.</p>
+            <div className="crud-form-grid">
+              <label>Legal publication name<input value={publication.legal_name || ""} onChange={(e) => setPublication({ ...publication, legal_name: e.target.value })} /></label>
+              <label>Owner / publisher<input value={publication.owner || ""} onChange={(e) => setPublication({ ...publication, owner: e.target.value })} /></label>
+              <label>Editor in chief<input value={publication.editor_in_chief || ""} onChange={(e) => setPublication({ ...publication, editor_in_chief: e.target.value })} /></label>
+              <label className="crud-wide">Publication address<input value={publication.address || ""} onChange={(e) => setPublication({ ...publication, address: e.target.value })} /></label>
+              <label>General email<input type="email" value={contact.general || ""} onChange={(e) => setContact({ ...contact, general: e.target.value })} /></label>
+              <label>News tips email<input type="email" value={contact.tips || ""} onChange={(e) => setContact({ ...contact, tips: e.target.value })} /></label>
+              <label>Corrections email<input type="email" value={contact.corrections || ""} onChange={(e) => setContact({ ...contact, corrections: e.target.value })} /></label>
+              <label>Advertising email<input type="email" value={contact.advertising || ""} onChange={(e) => setContact({ ...contact, advertising: e.target.value })} /></label>
+              <label>Press email<input type="email" value={contact.press || ""} onChange={(e) => setContact({ ...contact, press: e.target.value })} /></label>
+            </div>
+
+            <h2 className="trb-sidebar-heading" style={{ fontSize: "1.2rem" }}>
+              6. Newsletter & Responsible Monetization
+            </h2>
+            <div className="crud-form-grid">
+              <label className="crud-check"><input type="checkbox" checked={newsletterEnabled} onChange={(e) => setNewsletterEnabled(e.target.checked)} /> Newsletter signup enabled</label>
+              <label>Newsletter name<input value={newsletterName} onChange={(e) => setNewsletterName(e.target.value)} /></label>
+              <label className="crud-wide">Newsletter description<input value={newsletterDescription} onChange={(e) => setNewsletterDescription(e.target.value)} /></label>
+              <label className="crud-check"><input type="checkbox" checked={adsEnabled} onChange={(e) => setAdsEnabled(e.target.checked)} /> Clearly labelled ad slots enabled</label>
+              <label>Header slot<input value={adSlots.header || ""} onChange={(e) => setAdSlots({ ...adSlots, header: e.target.value })} placeholder="Configured ad markup or label" /></label>
+              <label>Homepage slot<input value={adSlots.homepage || ""} onChange={(e) => setAdSlots({ ...adSlots, homepage: e.target.value })} /></label>
+              <label>In-feed slot<input value={adSlots.in_feed || ""} onChange={(e) => setAdSlots({ ...adSlots, in_feed: e.target.value })} /></label>
+              <label>Article slot<input value={adSlots.article || ""} onChange={(e) => setAdSlots({ ...adSlots, article: e.target.value })} /></label>
+              <label>Sidebar slot<input value={adSlots.sidebar || ""} onChange={(e) => setAdSlots({ ...adSlots, sidebar: e.target.value })} /></label>
+              <label>Footer slot<input value={adSlots.footer || ""} onChange={(e) => setAdSlots({ ...adSlots, footer: e.target.value })} /></label>
+            </div>
+
+            <h2 className="trb-sidebar-heading" style={{ fontSize: "1.2rem" }}>
+              7. Privacy-conscious Analytics Configuration
+            </h2>
+            <div className="crud-form-grid">
+              <label>Provider<input value={analyticsProvider} onChange={(e) => setAnalyticsProvider(e.target.value)} placeholder="Leave blank to disable" /></label>
+              <label>Measurement ID<input value={analyticsMeasurementId} onChange={(e) => setAnalyticsMeasurementId(e.target.value)} placeholder="Provider measurement identifier" /></label>
+            </div>
+
             <div style={{ borderTop: "2px double var(--border-color)", paddingTop: "1.25rem" }}>
               <button type="submit" className="trb-btn-solid" style={{ width: "100%", padding: "0.85rem", fontSize: "0.85rem", letterSpacing: "1px" }}>
                 SAVE & DEPLOY ALL SITE SETTINGS NETWORK-WIDE
@@ -366,9 +443,13 @@ export default function SuperAdminPanel() {
             <Link href="/panels/admin" className="trb-btn-solid" style={{ display: "inline-flex", textDecoration: "none", marginBottom: "1rem" }}>
               Open full user & article CRUD
             </Link>
+            <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "0.72rem", fontWeight: 700, marginBottom: "1rem" }}>
+              SEARCH ACCESS REGISTRY
+              <input className="trb-input" value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="Username, email, or role…" style={{ width: "100%", marginTop: "0.35rem" }} />
+            </label>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxHeight: "360px", overflowY: "auto" }}>
-              {users.map((u) => (
+              {visibleUsers.map((u) => (
                 <div key={u.id} style={{ border: "1px solid var(--border-color)", padding: "0.75rem", background: "var(--bg-paper)", borderRadius: "3px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <div style={{ fontWeight: 800, fontFamily: "var(--font-mono)", fontSize: "0.8rem" }}>
@@ -392,6 +473,7 @@ export default function SuperAdminPanel() {
                   </select>
                 </div>
               ))}
+              {visibleUsers.length === 0 && <p className="empty-copy">No accounts match this search.</p>}
             </div>
           </div>
         </div>

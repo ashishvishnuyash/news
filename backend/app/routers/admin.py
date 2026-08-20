@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 from app.database import get_db
-from app.models import User, Article, Comment, ReviewComment, Notification
+from app.models import User, Article, Comment, Correction, ReviewComment, Notification
 from app.schemas import (
     AdminStats,
     AdminUserCreate,
@@ -37,6 +37,11 @@ async def get_stats(
     draft = (await db.execute(select(func.count(Article.id)).filter(Article.status == "DRAFT"))).scalar()
     submitted = (await db.execute(select(func.count(Article.id)).filter(Article.status == "SUBMITTED"))).scalar()
     rejected = (await db.execute(select(func.count(Article.id)).filter(Article.status == "REJECTED"))).scalar()
+    fact_check = (await db.execute(select(func.count(Article.id)).filter(Article.status == "FACT_CHECK"))).scalar()
+    editor_review = (await db.execute(select(func.count(Article.id)).filter(Article.status.in_(["EDITOR_REVIEW", "SUBMITTED"])))).scalar()
+    approved = (await db.execute(select(func.count(Article.id)).filter(Article.status == "APPROVED"))).scalar()
+    scheduled = (await db.execute(select(func.count(Article.id)).filter(Article.status == "SCHEDULED"))).scalar()
+    corrections = (await db.execute(select(func.count(Correction.id)))).scalar()
     total_comments = (await db.execute(select(func.count(Comment.id)))).scalar()
     journalists = (await db.execute(select(func.count(User.id)).filter(User.role == "JOURNALIST"))).scalar()
     editors = (await db.execute(select(func.count(User.id)).filter(User.role == "EDITOR"))).scalar()
@@ -50,6 +55,11 @@ async def get_stats(
         draft_articles=draft,
         submitted_articles=submitted,
         rejected_articles=rejected,
+        fact_check_articles=fact_check,
+        editor_review_articles=editor_review,
+        approved_articles=approved,
+        scheduled_articles=scheduled,
+        total_corrections=corrections,
         total_comments=total_comments,
         total_journalists=journalists,
         total_editors=editors,
@@ -101,6 +111,11 @@ async def create_user(
         hashed_password=get_password_hash(payload.password),
         role=payload.role,
         bio=payload.bio.strip() if payload.bio else None,
+        slug=payload.username.lower(),
+        profile_image_url=payload.profile_image_url,
+        job_title=payload.job_title.strip() if payload.job_title else None,
+        coverage_areas=payload.coverage_areas.strip() if payload.coverage_areas else None,
+        social_links=payload.social_links.strip() if payload.social_links else None,
     )
     db.add(user)
     await db.commit()

@@ -6,7 +6,12 @@ from app.content import sanitize_article_html
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,40}$")
 ROLES = {"READER", "JOURNALIST", "EDITOR", "ADMIN", "SUPER_ADMIN"}
-ARTICLE_STATUSES = {"DRAFT", "SUBMITTED", "PUBLISHED", "REJECTED"}
+ARTICLE_STATUSES = {
+    "DRAFT", "FACT_CHECK", "EDITOR_REVIEW", "APPROVED", "SCHEDULED",
+    "PUBLISHED", "REJECTED", "SUBMITTED",  # SUBMITTED remains for legacy clients.
+}
+ARTICLE_TYPES = {"NEWS", "OPINION", "INVESTIGATION", "FACT_CHECK", "LIVE"}
+FACT_CHECK_RATINGS = {"TRUE", "FALSE", "PARTLY_TRUE", "MISLEADING", "UNVERIFIED"}
 
 
 # ──────────────────────────────────────────────────────────────
@@ -64,6 +69,10 @@ class UserRegister(UserBase):
 class UserProfileUpdate(BaseModel):
     email: Optional[str] = Field(default=None, max_length=254)
     bio: Optional[str] = Field(default=None, max_length=1200)
+    profile_image_url: Optional[str] = Field(default=None, max_length=2000)
+    job_title: Optional[str] = Field(default=None, max_length=120)
+    coverage_areas: Optional[str] = Field(default=None, max_length=500)
+    social_links: Optional[str] = Field(default=None, max_length=4000)
 
 
 class PasswordChange(BaseModel):
@@ -95,6 +104,10 @@ class AdminUserCreate(UserBase):
     password: str = Field(min_length=8, max_length=128)
     role: str = "READER"
     bio: Optional[str] = Field(default=None, max_length=1200)
+    profile_image_url: Optional[str] = Field(default=None, max_length=2000)
+    job_title: Optional[str] = Field(default=None, max_length=120)
+    coverage_areas: Optional[str] = Field(default=None, max_length=500)
+    social_links: Optional[str] = Field(default=None, max_length=4000)
 
     @field_validator("role")
     @classmethod
@@ -110,6 +123,10 @@ class AdminUserUpdate(BaseModel):
     bio: Optional[str] = Field(default=None, max_length=1200)
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    profile_image_url: Optional[str] = Field(default=None, max_length=2000)
+    job_title: Optional[str] = Field(default=None, max_length=120)
+    coverage_areas: Optional[str] = Field(default=None, max_length=500)
+    social_links: Optional[str] = Field(default=None, max_length=4000)
 
     @field_validator("role")
     @classmethod
@@ -127,7 +144,28 @@ class UserResponse(UserBase):
     role: str
     email: Optional[str] = None
     bio: Optional[str] = None
+    slug: Optional[str] = None
+    profile_image_url: Optional[str] = None
+    job_title: Optional[str] = None
+    coverage_areas: Optional[str] = None
+    social_links: Optional[str] = None
     is_active: bool = True
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PublicAuthorResponse(BaseModel):
+    """Public byline identity; deliberately excludes account email and state."""
+    id: int
+    username: str
+    role: str
+    bio: Optional[str] = None
+    slug: Optional[str] = None
+    profile_image_url: Optional[str] = None
+    job_title: Optional[str] = None
+    coverage_areas: Optional[str] = None
+    social_links: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -175,7 +213,7 @@ class CommentUpdate(CommentBase):
 class CommentResponse(CommentBase):
     id: int
     article_id: int
-    author: UserResponse
+    author: PublicAuthorResponse
     created_at: datetime
     is_deleted: bool = False
 
@@ -193,7 +231,7 @@ class ReviewCommentCreate(BaseModel):
 class ReviewCommentResponse(BaseModel):
     id: int
     article_id: int
-    author: UserResponse
+    author: PublicAuthorResponse
     content: str
     created_at: datetime
 
@@ -206,12 +244,22 @@ class ReviewCommentResponse(BaseModel):
 
 class ArticleBase(BaseModel):
     title: str = Field(min_length=5, max_length=220)
+    slug: Optional[str] = Field(default=None, min_length=3, max_length=240)
+    author_id: Optional[int] = None
+    subtitle: Optional[str] = Field(default=None, max_length=500)
     content: str = Field(min_length=20, max_length=200_000)
     summary: Optional[str] = Field(default=None, max_length=800)
     category: str = Field(default="General", min_length=2, max_length=80)
     image_url: Optional[str] = Field(default=None, max_length=2000)
     image_caption: Optional[str] = Field(default=None, max_length=300)
     tags: Optional[str] = Field(default=None, max_length=500)
+    sources: Optional[str] = Field(default=None, max_length=20_000)
+    seo_title: Optional[str] = Field(default=None, max_length=70)
+    seo_description: Optional[str] = Field(default=None, max_length=170)
+    og_image_url: Optional[str] = Field(default=None, max_length=2000)
+    article_type: str = "NEWS"
+    fact_check_rating: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
     is_pinned: bool = False
     is_breaking: bool = False
 
@@ -227,6 +275,24 @@ class ArticleBase(BaseModel):
         if len(clean) < 20:
             raise ValueError("Article content is too short")
         return clean
+
+    @field_validator("article_type")
+    @classmethod
+    def valid_article_type(cls, value: str) -> str:
+        value = value.upper()
+        if value not in ARTICLE_TYPES:
+            raise ValueError("Invalid article type")
+        return value
+
+    @field_validator("fact_check_rating")
+    @classmethod
+    def valid_fact_check_rating(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        value = value.upper().replace(" ", "_")
+        if value not in FACT_CHECK_RATINGS:
+            raise ValueError("Invalid fact-check rating")
+        return value
 
 
 class ArticleCreate(ArticleBase):
@@ -249,12 +315,22 @@ class ArticleCreate(ArticleBase):
 
 class ArticleUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=5, max_length=220)
+    slug: Optional[str] = Field(default=None, min_length=3, max_length=240)
+    author_id: Optional[int] = None
+    subtitle: Optional[str] = Field(default=None, max_length=500)
     content: Optional[str] = Field(default=None, min_length=20, max_length=200_000)
     summary: Optional[str] = Field(default=None, min_length=10, max_length=800)
     category: Optional[str] = Field(default=None, min_length=2, max_length=80)
     image_url: Optional[str] = Field(default=None, max_length=2000)
     image_caption: Optional[str] = Field(default=None, max_length=300)
     tags: Optional[str] = Field(default=None, max_length=500)
+    sources: Optional[str] = Field(default=None, max_length=20_000)
+    seo_title: Optional[str] = Field(default=None, max_length=70)
+    seo_description: Optional[str] = Field(default=None, max_length=170)
+    og_image_url: Optional[str] = Field(default=None, max_length=2000)
+    article_type: Optional[str] = None
+    fact_check_rating: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
     status: Optional[str] = None  # DRAFT, SUBMITTED, PUBLISHED, REJECTED
     is_pinned: Optional[bool] = None
     is_breaking: Optional[bool] = None
@@ -269,17 +345,62 @@ class ArticleUpdate(BaseModel):
             raise ValueError("Invalid article status")
         return value
 
+    @field_validator("article_type")
+    @classmethod
+    def valid_article_type(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        value = value.upper()
+        if value not in ARTICLE_TYPES:
+            raise ValueError("Invalid article type")
+        return value
 
-class ArticleResponse(ArticleBase):
+    @field_validator("fact_check_rating")
+    @classmethod
+    def valid_fact_check_rating(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        value = value.upper().replace(" ", "_")
+        if value not in FACT_CHECK_RATINGS:
+            raise ValueError("Invalid fact-check rating")
+        return value
+
+
+class ArticleResponse(BaseModel):
+    """Article data returned from storage.
+
+    Response models intentionally do not inherit the create-time length
+    constraints. Older/imported rows can contain incomplete draft content and
+    must remain visible to staff so they can be repaired instead of causing an
+    entire listing endpoint to fail response validation.
+    """
+
     id: int
+    title: str
+    subtitle: Optional[str] = None
+    content: str
+    summary: Optional[str] = None
+    category: str = "General"
+    image_url: Optional[str] = None
+    image_caption: Optional[str] = None
+    tags: Optional[str] = None
+    sources: Optional[str] = None
+    seo_title: Optional[str] = None
+    seo_description: Optional[str] = None
+    og_image_url: Optional[str] = None
+    article_type: str = "NEWS"
+    fact_check_rating: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    is_pinned: bool = False
+    is_breaking: bool = False
     slug: Optional[str] = None
     status: str
     view_count: int = 0
     created_at: datetime
     updated_at: datetime
     published_at: Optional[datetime] = None
-    author: UserResponse
-    editor: Optional[UserResponse] = None
+    author: PublicAuthorResponse
+    editor: Optional[PublicAuthorResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -316,8 +437,137 @@ class AdminStats(BaseModel):
     draft_articles: int
     submitted_articles: int
     rejected_articles: int
+    fact_check_articles: int = 0
+    editor_review_articles: int = 0
+    approved_articles: int = 0
+    scheduled_articles: int = 0
+    total_corrections: int = 0
     total_comments: int
     total_journalists: int
     total_editors: int
     total_readers: int
     total_superadmins: int = 0
+
+
+class ArticleSearchResponse(BaseModel):
+    items: List[ArticleResponse]
+    total: int
+    limit: int
+    offset: int
+    suggestions: List[str] = Field(default_factory=list)
+
+
+class ArticleIndexResponse(BaseModel):
+    """Compact public record used by archives and sitemap generation."""
+    id: int
+    slug: Optional[str] = None
+    title: str
+    subtitle: Optional[str] = None
+    summary: Optional[str] = None
+    category: str
+    image_url: Optional[str] = None
+    image_caption: Optional[str] = None
+    tags: Optional[str] = None
+    article_type: str = "NEWS"
+    fact_check_rating: Optional[str] = None
+    view_count: int = 0
+    is_pinned: bool = False
+    is_breaking: bool = False
+    created_at: datetime
+    updated_at: datetime
+    published_at: Optional[datetime] = None
+    author: PublicAuthorResponse
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuthorProfileResponse(BaseModel):
+    author: PublicAuthorResponse
+    articles: List[ArticleResponse]
+    total_articles: int
+    total_views: int
+    coverage_areas: List[str] = Field(default_factory=list)
+
+
+class CorrectionCreate(BaseModel):
+    article_id: int
+    summary: str = Field(min_length=5, max_length=500)
+    details: Optional[str] = Field(default=None, max_length=5000)
+
+
+class CorrectionResponse(BaseModel):
+    id: int
+    article_id: int
+    summary: str
+    details: Optional[str] = None
+    created_at: datetime
+    article_title: str
+    article_slug: Optional[str] = None
+    recorded_by: str
+
+
+class NewsletterSubscribe(BaseModel):
+    email: str = Field(min_length=5, max_length=254)
+    source: str = Field(default="website", max_length=80)
+
+    @field_validator("email")
+    @classmethod
+    def valid_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if "@" not in value or value.startswith("@") or value.endswith("@"):
+            raise ValueError("Enter a valid email address")
+        return value
+
+
+class LiveUpdateCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=10_000)
+
+
+class LiveUpdateResponse(BaseModel):
+    id: int
+    article_id: int
+    content: str
+    created_at: datetime
+    updated_at: datetime
+    author: PublicAuthorResponse
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NewsroomMessageCreate(BaseModel):
+    purpose: str = Field(max_length=30)
+    name: Optional[str] = Field(default=None, max_length=120)
+    email: Optional[str] = Field(default=None, max_length=254)
+    message: str = Field(min_length=20, max_length=10_000)
+
+    @field_validator("purpose")
+    @classmethod
+    def valid_purpose(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in {"general", "tips", "corrections", "advertising", "press"}:
+            raise ValueError("Choose a valid contact purpose")
+        return value
+
+    @field_validator("name", "email")
+    @classmethod
+    def clean_optional(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() or None if value is not None else None
+
+    @field_validator("email")
+    @classmethod
+    def valid_optional_email(cls, value: Optional[str]) -> Optional[str]:
+        if value and ("@" not in value or value.startswith("@") or value.endswith("@")):
+            raise ValueError("Enter a valid email address")
+        return value.lower() if value else value
+
+
+class NewsroomMessageResponse(BaseModel):
+    id: int
+    purpose: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+    message: str
+    status: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/settings", tags=["Site Settings"])
 ALLOWED_SETTING_KEYS = {
     "site_name", "site_motto", "est_year", "edition_number", "breaking_news",
     "breaking_active", "categories", "features",
+    "contact", "publication", "advertising", "analytics", "newsletter",
 }
 
 
