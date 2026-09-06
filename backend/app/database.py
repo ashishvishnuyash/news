@@ -65,6 +65,36 @@ async def ensure_compatible_schema(connection) -> None:
             if column_name not in current:
                 await connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN "{column_name}" {definition}'))
 
+    if connection.dialect.name == "postgresql":
+        # Older application workers incremented view_count through an ORM row
+        # update, which also fired Article.updated_at's Python on-update value.
+        # Keep the editorial timestamp stable whenever view_count is the only
+        # substantive field changed, even during a rolling deployment.
+        await connection.execute(text("""
+            CREATE OR REPLACE FUNCTION preserve_article_timestamp_on_view()
+            RETURNS trigger AS $$
+            BEGIN
+                IF NEW.view_count IS DISTINCT FROM OLD.view_count
+                   AND (to_jsonb(NEW) - 'view_count' - 'updated_at')
+                       IS NOT DISTINCT FROM
+                       (to_jsonb(OLD) - 'view_count' - 'updated_at') THEN
+                    NEW.updated_at := OLD.updated_at;
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+        """))
+        await connection.execute(text("""
+            DROP TRIGGER IF EXISTS preserve_article_timestamp_on_view
+            ON articles
+        """))
+        await connection.execute(text("""
+            CREATE TRIGGER preserve_article_timestamp_on_view
+            BEFORE UPDATE ON articles
+            FOR EACH ROW
+            EXECUTE FUNCTION preserve_article_timestamp_on_view()
+        """))
+
 async def get_db():
     async with SessionLocal() as session:
         try:

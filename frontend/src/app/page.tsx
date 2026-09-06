@@ -74,7 +74,7 @@ export default async function Home() {
         </section>
       ) : (
         <>
-          <section className="home-lead" aria-labelledby="top-story-heading">
+          <section className={`home-lead ${!featured.image_url ? "has-no-image" : ""}`} aria-labelledby="top-story-heading">
             <div className="home-lead-copy">
               <p className="story-kicker">{featured.is_breaking ? "Breaking · " : ""}{featured.category}</p>
               <h1 id="top-story-heading"><Link href={articleHref(featured)}>{featured.title}</Link></h1>

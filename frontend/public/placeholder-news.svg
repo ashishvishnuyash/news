@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="100%" height="100%">
+  <defs>
+    <radialGradient id="newsBg" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#EFECE3"/>
+      <stop offset="100%" stop-color="#E2DDD2"/>
+    </radialGradient>
+    <pattern id="halftone" width="10" height="10" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="0.75" fill="#1C1A17" opacity="0.08"/>
+    </pattern>
+  </defs>
+
+  <!-- Background Paper -->
+  <rect width="1200" height="700" fill="url(#newsBg)"/>
+  <rect width="1200" height="700" fill="url(#halftone)"/>
+
+  <!-- Outer Double Framing -->
+  <rect x="24" y="24" width="1152" height="652" fill="none" stroke="#1C1A17" stroke-width="2"/>
+  <rect x="32" y="32" width="1136" height="636" fill="none" stroke="#1C1A17" stroke-width="0.75"/>
+
+  <!-- Center Decorative Crest & Newspaper Emblem -->
+  <g transform="translate(600, 290)">
+    <!-- Decorative Circle -->
+    <circle cx="0" cy="0" r="70" fill="none" stroke="#1C1A17" stroke-width="2"/>
+    <circle cx="0" cy="0" r="62" fill="none" stroke="#8B0000" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+    <!-- Emblem Quill & Newspaper Icon -->
+    <path d="M-22,-24 L22,-24 L22,24 L-22,24 Z" fill="none" stroke="#1C1A17" stroke-width="2.5"/>
+    <line x1="-14" y1="-14" x2="14" y2="-14" stroke="#1C1A17" stroke-width="2"/>
+    <line x1="-14" y1="-6" x2="14" y2="-6" stroke="#1C1A17" stroke-width="2"/>
+    <line x1="-14" y1="2" x2="6" y2="2" stroke="#1C1A17" stroke-width="2"/>
+    <line x1="-14" y1="10" x2="14" y2="10" stroke="#1C1A17" stroke-width="2"/>
+    <line x1="-14" y1="18" x2="2" y2="18" stroke="#1C1A17" stroke-width="2"/>
+    <!-- Red Accent Quill -->
+    <path d="M12,18 L26,4 L30,8 L16,22 Z" fill="#8B0000"/>
+  </g>
+
+  <!-- Typography -->
+  <text x="600" y="425" text-anchor="middle" font-family="'Cinzel', 'Playfair Display', Georgia, serif" font-size="24" font-weight="900" letter-spacing="6" fill="#1C1A17">
+    THE REPUBLIC BULLETIN
+  </text>
+  <line x1="420" y1="445" x2="780" y2="445" stroke="#8B0000" stroke-width="1.5"/>
+  <text x="600" y="475" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="13" font-weight="700" letter-spacing="3" fill="#1C1A17" opacity="0.75">
+    SPECIAL EDITORIAL REPORT
+  </text>
+</svg>

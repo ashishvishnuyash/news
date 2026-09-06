@@ -177,7 +177,7 @@ export default function ArticleDetailClient({
             </div>
           </header>
 
-          {article.image_url && <figure className="article-hero"><Image src={article.image_url} alt={article.image_caption || article.title} width={1200} height={720} priority />{article.image_caption && <figcaption>{article.image_caption}</figcaption>}</figure>}
+          {article.image_url && <figure className="article-hero"><div className="article-hero-media"><Image src={article.image_url} alt={article.image_caption || article.title} fill sizes="(max-width: 1024px) calc(100vw - 1.6rem), 760px" preload /></div>{article.image_caption && <figcaption>{article.image_caption}</figcaption>}</figure>}
           <div className="article-prose" dangerouslySetInnerHTML={{ __html: getContentHtml(article.content) }} />
 
           {sources.length > 0 && <section className="article-sources" aria-labelledby="sources-heading"><h2 id="sources-heading">Sources and references</h2><ol>{sources.map((source, index) => <li key={`${source}-${index}`}>{/^https?:\/\//i.test(source) ? <a href={source} target="_blank" rel="noreferrer">{source}</a> : source}</li>)}</ol></section>}

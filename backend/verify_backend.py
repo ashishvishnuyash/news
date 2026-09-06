@@ -58,8 +58,8 @@ class TestNewspaperAPI(unittest.TestCase):
         self.assertIn("breaking_news", settings)
 
     def test_02_superadmin_auth_and_settings_update(self):
-        # Login as superadmin
-        token = self.login("superadmin", "password123")
+        # Login as the seeded super admin
+        token = self.login("rajiv_sharma", "password123")
         headers = {"Authorization": f"Bearer {token}"}
 
         status, me = self.make_request("/api/auth/me", headers=headers)
@@ -73,7 +73,7 @@ class TestNewspaperAPI(unittest.TestCase):
         self.assertEqual(res.get("breaking_news"), "BREAKING: Market Hits New Record High")
 
     def test_03_journalist_workflow(self):
-        token = self.login("journalist", "password123")
+        token = self.login("arjun_verma", "password123")
         headers = {"Authorization": f"Bearer {token}"}
         
         article_payload = {

@@ -38,3 +38,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.log
+
+# Generated output & scratch
+scratch/
+instagram_posts/

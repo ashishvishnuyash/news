@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import re
 import unicodedata
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -156,11 +157,22 @@ async def get_article(
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
 
-    # Increment view count for published articles
+    # Increment view count for published articles without modifying updated_at
     if article.status == "PUBLISHED" and track_view:
-        article.view_count = (article.view_count or 0) + 1
-        db.add(article)
+        await db.execute(
+            update(Article)
+            .where(Article.id == article.id)
+            .values(
+                view_count=Article.view_count + 1,
+                # Explicitly suppress the model's editorial on-update hook.
+                updated_at=article.updated_at,
+            )
+            .execution_options(synchronize_session=False)
+        )
         await db.commit()
+        # Reload the database-generated count. Assigning it manually would mark
+        # the ORM row dirty, and get_db's final commit would then fire
+        # Article.updated_at's on-update hook after the response is serialized.
         await db.refresh(article)
 
     # Non-published: require auth and proper role
@@ -365,6 +377,9 @@ async def update_article(
 
     for key, value in update_data.items():
         setattr(article, key, value)
+
+    if "updated_at" not in update_data:
+        article.updated_at = utc_now()
 
     db.add(article)
     await db.commit()

@@ -176,7 +176,9 @@ class TheHinduRSSSource:
                         continue
 
                     description = _plain_text(getattr(entry, "summary", ""))
-                    image = _entry_image(entry)
+                    img = _safe_http_url(image)
+                    if any(k in img.lower() for k in ["theme/images", "og-image", "default", "logo", "placeholder", "favicon"]):
+                        img = ""
 
                     article = SourceArticle(
                         title=title,
@@ -184,8 +186,8 @@ class TheHinduRSSSource:
                         published_at=published,
                         source_name="The Hindu",
                         description=description,
-                        image_url=image,
-                        image_caption=f"Source image via The Hindu ({section_name})",
+                        image_url=img or None,
+                        image_caption="Special Report" if img else None,
                         extraction_method="RSS",
                         category=_map_category(section_name, link),
                     )
@@ -217,7 +219,10 @@ class TheHinduRSSSource:
                 if not article.image_url:
                     image = soup.select_one('meta[property="og:image"], meta[name="twitter:image"]')
                     if image:
-                        article.image_url = _safe_http_url(image.get("content", ""))
+                        cand = _safe_http_url(image.get("content", ""))
+                        if not any(k in cand.lower() for k in ["theme/images", "og-image", "default", "logo", "placeholder", "favicon"]):
+                            article.image_url = cand
+                            article.image_caption = "Special Report"
         except requests.RequestException:
             pass
 
@@ -240,5 +245,9 @@ class TheHinduRSSSource:
         # If no full body text could be scraped, use description as fallback
         if not article.text.strip() and article.description:
             article.text = article.description
+
+        if article.image_url and any(k in article.image_url.lower() for k in ["theme/images", "og-image", "default", "logo", "placeholder", "favicon"]):
+            article.image_url = None
+            article.image_caption = None
 
         return article

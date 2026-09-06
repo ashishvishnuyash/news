@@ -19,7 +19,7 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
 from app.auth import get_password_hash  # noqa: E402
 from app.database import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import User  # noqa: E402
+from app.models import Article, User  # noqa: E402
 from sqlalchemy import func, select  # noqa: E402
 
 
@@ -92,6 +92,20 @@ class ApiWorkflowTests(unittest.IsolatedAsyncioTestCase):
 
         public = await self.client.get(f"/api/articles/{article['slug']}")
         self.assertEqual(public.status_code, 200, public.text)
+        self.assertEqual(
+            public.json()["updated_at"],
+            published.json()["updated_at"],
+            "A reader view must not change the editorial updated timestamp",
+        )
+        async with SessionLocal() as verification_session:
+            stored = (await verification_session.execute(
+                select(Article).where(Article.id == article["id"])
+            )).scalars().one()
+            self.assertEqual(
+                stored.updated_at.isoformat(),
+                published.json()["updated_at"],
+                "The stored editorial timestamp must survive request cleanup",
+            )
 
         await self.login("reader_test")
         comment = await self.client.post(

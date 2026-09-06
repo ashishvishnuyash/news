@@ -60,7 +60,7 @@ class Article(Base):
     is_pinned = Column(Boolean, default=False, nullable=False)
     is_breaking = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, nullable=False)
     published_at = Column(DateTime, nullable=True)
 
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)

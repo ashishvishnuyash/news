@@ -22,25 +22,48 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
   if (!article) return { title: "Dispatch not found", robots: { index: false, follow: false } };
   const description = article.seo_description?.trim() || article.summary?.trim() || article.subtitle?.trim() || `Read ${article.title} in The Republic Bulletin.`;
   const canonicalPath = `/articles/${article.slug || slug}`;
+  const socialImage = absoluteUrl(article.og_image_url || article.image_url) || siteUrl("/favicon.png");
+  const socialImages = [{ url: socialImage, alt: article.image_caption?.trim() || article.title }];
   return {
     title: article.seo_title || article.title,
     description,
     alternates: { canonical: canonicalPath },
     authors: [{ name: article.author.username, url: authorHref(article.author) }],
+    creator: article.author.username,
+    publisher: "The Republic Bulletin",
     category: article.category,
+    keywords: article.tags?.split(",").map((tag) => tag.trim()).filter(Boolean),
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        "max-image-preview": "large",
+        "max-snippet": -1,
+        "max-video-preview": -1,
+      },
+    },
     openGraph: {
       type: "article",
       url: siteUrl(canonicalPath),
       title: article.seo_title || article.title,
       description,
       siteName: "The Republic Bulletin",
+      locale: "en_IN",
+      images: socialImages,
       publishedTime: article.published_at || article.created_at,
       modifiedTime: article.updated_at,
       authors: [article.author.username],
       section: article.category,
       tags: article.tags?.split(",").map((tag) => tag.trim()).filter(Boolean),
     },
-    twitter: { card: "summary_large_image", title: article.seo_title || article.title, description },
+    twitter: {
+      card: "summary_large_image",
+      title: article.seo_title || article.title,
+      description,
+      images: socialImages,
+    },
   };
 }
 
@@ -64,9 +87,11 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
     ...(article.subtitle ? { alternativeHeadline: article.subtitle } : {}),
     description: article.seo_description || article.summary || article.subtitle,
     ...(image ? { image: [image] } : {}),
+    ...(image ? { thumbnailUrl: image } : {}),
     datePublished: article.published_at || article.created_at,
     dateModified: article.updated_at,
     articleSection: article.category,
+    inLanguage: "en-IN",
     ...(article.tags ? { keywords: article.tags } : {}),
     mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
     author: { "@type": "Person", name: article.author.username, url: siteUrl(authorHref(article.author)) },

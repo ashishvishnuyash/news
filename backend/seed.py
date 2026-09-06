@@ -14,28 +14,32 @@ async def seed_data():
     async with SessionLocal() as db:
         # 1. Create users for all 5 roles
         superadmin = User(
-            username="superadmin",
+            username="rajiv_sharma",
+            slug="rajiv-sharma",
             email="superadmin@therepublicbulletin.com",
             hashed_password=get_password_hash("password123"),
             role="SUPER_ADMIN",
             bio="Chief Executive Publisher & System Administrator."
         )
         admin = User(
-            username="admin",
+            username="priya_mehta",
+            slug="priya-mehta",
             email="admin@therepublicbulletin.com",
             hashed_password=get_password_hash("password123"),
             role="ADMIN",
             bio="Operations Manager & Staff Coordinator."
         )
         editor = User(
-            username="editor",
+            username="ananya_rao",
+            slug="ananya-rao",
             email="editor@therepublicbulletin.com",
             hashed_password=get_password_hash("password123"),
             role="EDITOR",
             bio="Managing Editor - Chief of Editorial Review Desk."
         )
         journalist = User(
-            username="journalist",
+            username="arjun_verma",
+            slug="arjun-verma",
             email="journalist@therepublicbulletin.com",
             hashed_password=get_password_hash("password123"),
             role="JOURNALIST",
