@@ -4,7 +4,7 @@ import { getPublicationIndex, plainText } from "../../lib/news";
 export const revalidate = 300;
 
 function xml(value: string) {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  return value.replace(/&(?!(amp|lt|gt|quot|apos);)/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
 export async function GET() {
